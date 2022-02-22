@@ -1,6 +1,6 @@
 import os
 from typing import Mapping, List
-from utils import set_seed
+from src.utils import set_seed
 from dataclasses import dataclass
 
 @dataclass
@@ -73,4 +73,5 @@ if __name__ == "__main__":
                      }) 
                 ] 
 
-    write_KB(generate_KB(animals, universes))   
+    write_KB(generate_KB(animals, universes))
+    
