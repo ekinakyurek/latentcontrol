@@ -1,7 +1,7 @@
 import os
 from typing import List, Mapping
 import numpy as np
-from utils import set_seed
+from src.utils import set_seed
 from collections import Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
