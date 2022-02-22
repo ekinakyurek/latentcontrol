@@ -55,9 +55,9 @@ def main():
     animals = [Animal("dogs", "mamal"), 
                Animal("cats", "mamal"),
                Animal("frogs", "amphibian"),
-               Animal("salamender", "amphibian"),
-               Animal("snake", "reptile"),
-               Animal("crocodile", "reptile"),
+               Animal("salamenders", "amphibian"),
+               Animal("snakes", "reptile"),
+               Animal("crocodiles", "reptile"),
               ]
 
     
