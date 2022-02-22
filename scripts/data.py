@@ -1,5 +1,5 @@
 import os
-from typing import Mapping, List
+from typing import Mapping, List 
 from src.utils import set_seed
 from dataclasses import dataclass
 
@@ -47,9 +47,9 @@ def write_KB(KB: List[KBEntry], corpus_folder: str = "datasets/SimpleKB/"):
     with open(os.path.join(corpus_folder, "corpus.txt"), "w") as f:
         for k in KB:
             print(k, file=f)
-
-
-if __name__ == "__main__":
+            
+def main():   
+    
     set_seed(0)
     
     animals = [Animal("dogs", "mamal"), 
@@ -74,4 +74,7 @@ if __name__ == "__main__":
                 ] 
 
     write_KB(generate_KB(animals, universes))
-    
+
+
+if __name__ == "__main__":
+    main()

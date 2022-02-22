@@ -41,7 +41,7 @@ def get_py_x(cx: Mapping, cxy: Mapping) -> Mapping:
     return py_x
 
 
-if __name__ == "__main__":
+def main():
     sns.set_theme()
     plt.style.use(".mplstyle")
     os.makedirs("plots", exist_ok=True)
@@ -79,8 +79,9 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig('plots/bigram.png', dpi=300)
     
-        
     
+if __name__ == "__main__":
+    main()
 
         
         
