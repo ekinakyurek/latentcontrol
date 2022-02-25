@@ -1,0 +1,19 @@
+# Packages to be installed in `Dockerfile` in `train` or `full` modes.
+mkl  # Remove this if MKL is not used. Essential package in the default setting.
+torchmetrics
+pandas
+openpyxl  # Read `.xlsx` files in Pandas.
+scikit-learn>=1.0.0
+ipython
+jupyterlab
+seaborn
+black
+pytest
+pre-commit
+rich
+flake8
+isort
+tqdm
+pytorch-lightning
+deepspeed
+psutil

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Animal:
+    """Represents animals with their name and family"""
     name: str
     family: str
     
@@ -13,6 +14,7 @@ class Animal:
 
 @dataclass
 class Universe:
+    """Represents animals with their name and relations"""
     name: str
     relations: Mapping
     
@@ -21,6 +23,7 @@ class Universe:
     
 @dataclass
 class KBEntry:
+    """Knowledge base entry"""
     universe: Universe
     animal1: Animal
     animal2: Animal
@@ -31,6 +34,7 @@ class KBEntry:
     
 
 def generate_KB(animals: List[Animal], universes: List[Universe]) -> List[KBEntry]:
+    """Generates knowledge base"""
     KB = []
     for universe in universes:
         for animal1 in animals:
@@ -42,9 +46,12 @@ def generate_KB(animals: List[Animal], universes: List[Universe]) -> List[KBEntr
                         KB.append(KBEntry(universe, animal1, animal2, "dislikes"))
     return KB
     
-def write_KB(KB: List[KBEntry], corpus_folder: str = "datasets/SimpleKB/"):
+def write_KB(KB: List[KBEntry], 
+             file_name: str = "corpus.txt",
+             corpus_folder: str = "datasets/SimpleKB/"):
+    """Writes knowledge base to a text file"""
     os.makedirs(corpus_folder, exist_ok=True)
-    with open(os.path.join(corpus_folder, "corpus.txt"), "w") as f:
+    with open(os.path.join(corpus_folder, file_name), "w") as f:
         for k in KB:
             print(k, file=f)
             
