@@ -44,7 +44,7 @@ ARG MKL_MODE=include
 ARG CUDA_VERSION=11.3.1
 ARG MAGMA_VERSION=113
 ARG CUDNN_VERSION=8
-ARG PYTHON_VERSION=3.8
+ARG PYTHON_VERSION=3.9
 ARG LINUX_DISTRO=ubuntu
 ARG DISTRO_VERSION=20.04
 ARG TORCH_CUDA_ARCH_LIST
@@ -500,7 +500,7 @@ ARG DEB_OLD=http://archive.ubuntu.com
 ARG DEB_NEW=http://mirror.kakao.com
 
 # `tzdata` requires a timezone and noninteractive mode.
-ENV TZ=Asia/Seoul
+ENV TZ=America/New_York
 ARG DEBIAN_FRONTEND=noninteractive
 # Using `sed` and `xargs` to imitate the behavior of a requirements file.
 # The `--mount=type=bind` temporarily mounts a directory from another stage.

@@ -63,13 +63,13 @@ services:
         PROJECT_ROOT: ${PROJECT_ROOT:-/opt/project}
         GID: ${GID:-1000}  # Run `id -g` on the terminal to find your GID. Check that it is set properly in `.env`.
         UID: ${UID:-1000}  # Run `id -u` on the terminal to find your UID. Check that it is set properly in `.env`.
-        TZ: ${TZ:-Asia/Seoul}  # Used during the build.
+        TZ: ${TZ:-America/New_York}  # Used during the build.
     working_dir: ${PROJECT_ROOT:-/opt/project}
 #    ports:  # Uncomment if ports are necessary.
 #      - ${PORT:-8080}:22
     user: ${UID:-1000}:${GID:-1000}
     environment:  # Environment variables for the container, not the build. Equivalent to `--env`
-      TZ: ${TZ:-Asia/Seoul}  # Used during runtime.
+      TZ: ${TZ:-America/New_York}  # Used during runtime.
       CUDA_DEVICE_ORDER: PCI_BUS_ID
     deploy:  # API dependent on compose version.
       resources:
@@ -126,13 +126,13 @@ services:
         PROJECT_ROOT: ${PROJECT_ROOT:-/opt/project}
         GID: ${GID:-1000}
         UID: ${UID:-1000}
-        TZ: ${TZ:-Asia/Seoul}
+        TZ: ${TZ:-America/New_York}
     working_dir: ${PROJECT_ROOT:-/opt/project}
     user: ${UID:-1000}:${GID:-1000}
 #    depends_on:
 #      - pull
     environment:
-      TZ: ${TZ:-Asia/Seoul}
+      TZ: ${TZ:-America/New_York}
       CUDA_DEVICE_ORDER: PCI_BUS_ID
     deploy:
       resources:
@@ -203,44 +203,8 @@ services:
       args:
         TORCH_CUDA_ARCH_LIST: ${CCA:?CCA (Compute Capability) is undefined. Check if the .env file exists.}
 
-
-  ngc:  # NGC image service.
-    hostname: ngc
-    image: pytorch_source:ngc-${YEAR:-22}.${MONTH:-01}
-#    ipc: host
-#    shm_size: 1GB
-    tty: true
-    init: true
-    stdin_open: true
-    volumes:
-      - .:${PROJECT_ROOT:-/opt/project}
-    build:
-      target: ngc
-      context: .
-      dockerfile: ngc.Dockerfile
-      args:
-        PROJECT_ROOT: ${PROJECT_ROOT:-/opt/project}
-        YEAR: ${YEAR:-22}
-        MONTH: ${MONTH:-01}
-        GID: ${GID:-1000}
-        UID: ${UID:-1000}
-        TZ: ${TZ:-Asia/Seoul}
-    working_dir: ${PROJECT_ROOT:-/opt/project}
-    user: ${UID:-1000}:${GID:-1000}
-    environment:
-      TZ: ${TZ:-Asia/Seoul}
-      CUDA_DEVICE_ORDER: PCI_BUS_ID
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [ gpu ]
-
-
   pull:  # Simple utility to explicitly pull and save the base Docker image.
     image: nvidia/cuda:${CUDA_VERSION}-cudnn${CUDNN_VERSION}-devel-${LINUX_DISTRO}${DISTRO_VERSION}
-
 
 # https://docs.docker.com/storage/volumes/#use-a-volume-with-docker-compose
 # https://docs.docker.com/compose/compose-file/compose-file-v3/#volumes
