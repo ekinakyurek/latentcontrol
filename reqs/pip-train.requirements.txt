@@ -17,3 +17,8 @@ tqdm
 pytorch-lightning
 deepspeed
 psutil
+bitarray
+hydra-core
+omegaconf
+sacrebleu
+tensorboardX

@@ -496,16 +496,16 @@ ARG PYTHONUNBUFFERED=1
 # Speedups in `apt` installs for Korean users. Change URLs for other locations.
 # http://archive.ubuntu.com/ubuntu is specific to NVIDIA's CUDA Ubuntu images.
 # Check `/etc/apt/sources.list` of the base image to find the Ubuntu URL.
-ARG DEB_OLD=http://archive.ubuntu.com
-ARG DEB_NEW=http://mirror.kakao.com
+# ARG DEB_OLD=http://archive.ubuntu.com
+# ARG DEB_NEW=http://mirror.kakao.com
 
 # `tzdata` requires a timezone and noninteractive mode.
 ENV TZ=America/New_York
 ARG DEBIAN_FRONTEND=noninteractive
 # Using `sed` and `xargs` to imitate the behavior of a requirements file.
 # The `--mount=type=bind` temporarily mounts a directory from another stage.
+# sed -i "s%${DEB_OLD}%${DEB_NEW}%g" /etc/apt/sources.list && \
 RUN --mount=type=bind,from=train-builds,source=/tmp/reqs/apt,target=/tmp/reqs/apt \
-    sed -i "s%${DEB_OLD}%${DEB_NEW}%g" /etc/apt/sources.list && \
     apt-get update &&  \
     sed 's/#.*//g; s/\r//g' /tmp/reqs/apt/requirements.txt | \
     xargs -r apt-get install -y --no-install-recommends && \
@@ -573,14 +573,19 @@ RUN echo "source $HOME/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 # The numpy, scipy, and numba libraries are not MKL optimized when installed from PyPI.
 # Install them from the Intel channel of Anaconda if desired.
 # Including versioning and dependencies is too complicated.
-ARG INDEX_URL=https://mirror.kakao.com/pypi/simple
-ARG TRUSTED_HOST=mirror.kakao.com
+
+# ARG INDEX_URL=https://mirror.kakao.com/pypi/simple
+# ARG TRUSTED_HOST=mirror.kakao.com
+# printf "[global]\nindex-url=${INDEX_URL}\ntrusted-host=${TRUSTED_HOST}\n" > /opt/conda/pip.conf && \
+
 RUN --mount=type=bind,from=train-builds,source=/tmp/dist,target=/tmp/dist \
     --mount=type=bind,from=train-builds,source=/tmp/reqs/pip,target=/tmp/reqs/pip \
-    printf "[global]\nindex-url=${INDEX_URL}\ntrusted-host=${TRUSTED_HOST}\n" > /opt/conda/pip.conf && \
     python -m pip install --no-cache-dir --find-links /tmp/dist  \
         -r /tmp/reqs/pip/requirements.txt \
         /tmp/dist/*.whl
+
+RUN git clone https://github.com/ekinakyurek/fairseq $HOME/fairseq && \
+    python -m pip install --no-cache-dir --no-deps $HOME/fairseq
 
 # Settings common to both gomp and iomp.
 ENV OMP_PROC_BIND=CLOSE
@@ -606,19 +611,6 @@ USER ${USR}
 # `PROJECT_ROOT` belongs to `USR` if created after `USER` has been set.
 # Not so for pre-existing directories, which will still belong to root.
 WORKDIR ${PROJECT_ROOT}
-
-ARG FAIRSEQ_VERSION_TAG
-ARG FAIRSEQ_URL=https://github.com/pytorch/fairseq.git
-
-RUN git clone --recursive --jobs 0 ${FAIRSEQ_URL} ${PROJECT_ROOT}/fairseq && \
-    if [ -n ${FAIRSEQ_VERSION_TAG} ]; then \
-        git checkout ${FAIRSEQ_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
-
-RUN python -m pip uninstall -y fairseq && \
-    python -m pip install --editable --force-reinstall ${PROJECT_ROOT}/fairseq
 
 CMD ["/bin/zsh"]
 
@@ -659,10 +651,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Use mirror links optimized for user location and security level.
-ARG DEB_OLD=http://archive.ubuntu.com
-ARG DEB_NEW=http://mirror.kakao.com
-ARG INDEX_URL=https://mirror.kakao.com/pypi/simple
-ARG TRUSTED_HOST=mirror.kakao.com
+# ARG DEB_OLD=http://archive.ubuntu.com
+# ARG DEB_NEW=http://mirror.kakao.com
+# ARG INDEX_URL=https://mirror.kakao.com/pypi/simple
+# ARG TRUSTED_HOST=mirror.kakao.com
 
 # Replace the `--mount=...` instructions with `COPY` if BuildKit is unavailable.
 # The `readwrite` option is necessary because `apt` needs write permissions on `\tmp`.
@@ -670,10 +662,11 @@ ARG TRUSTED_HOST=mirror.kakao.com
 # The pre-installed system Python3 may be overridden if the installed and pre-installed
 # versions of Python3 are the same (e.g., Python 3.8 on Ubuntu 20.04 LTS).
 # Using `sed` and `xargs` to imitate the behavior of a requirements file.
+# sed -i "s%${DEB_OLD}%${DEB_NEW}%g" /etc/apt/sources.list && \
+
 ARG PYTHON_VERSION
 ARG DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=bind,from=deploy-builds,readwrite,source=/tmp,target=/tmp \
-    sed -i "s%${DEB_OLD}%${DEB_NEW}%g" /etc/apt/sources.list && \
     apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common && \
     add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
@@ -687,8 +680,8 @@ RUN --mount=type=bind,from=deploy-builds,readwrite,source=/tmp,target=/tmp \
 # The `mkl` package must be installed for PyTorch to use MKL outside `conda`.
 # The MKL major version used at runtime must match the version used to build PyTorch.
 # The `ldconfig` command is necessary for PyTorch to find MKL and other libraries.
+# printf "[global]\nindex-url=${INDEX_URL}\ntrusted-host=${TRUSTED_HOST}\n" > /etc/pip.conf && \
 RUN --mount=type=bind,from=deploy-builds,source=/tmp,target=/tmp \
-    printf "[global]\nindex-url=${INDEX_URL}\ntrusted-host=${TRUSTED_HOST}\n" > /etc/pip.conf && \
     python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     python -m pip install --no-cache-dir --find-links /tmp/dist/ \
         -r /tmp/reqs/pip-deploy.requirements.txt \
