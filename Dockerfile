@@ -484,7 +484,7 @@ FROM ${TRAIN_IMAGE} AS train
 # Example training image for Ubuntu on an Intel x86_64 CPU.
 # Edit this image if necessary.
 
-LABEL maintainer=veritas9872@gmail.com
+LABEL maintainer=akyurekekin@gmail.com
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONIOENCODING=UTF-8
@@ -643,7 +643,7 @@ COPY reqs/pip-deploy.requirements.txt /tmp/reqs/pip-deploy.requirements.txt
 # Minimalist deployment Ubuntu image.
 FROM ${DEPLOY_IMAGE} AS deploy
 
-LABEL maintainer=veritas9872@gmail.com
+LABEL maintainer=akyurekekin@gmail.com
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONIOENCODING=UTF-8
