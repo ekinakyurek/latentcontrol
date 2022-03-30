@@ -1,10 +1,10 @@
 import os
+import pdb
 from pathlib import Path
-from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
 import torch
 import torch.nn as nn
 from absl import logging
-import pdb
+from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
 
 
 class GPTPostfixMixin:
@@ -16,13 +16,12 @@ class GPTPostfixMixin:
         n_steps: int = None,
         random_range: float = 0.5,
         initialize_from_vocab: bool = True,
-        padding_idx : int = None,
+        padding_idx: int = None,
         **kwargs,
     ):
-        model = super().from_pretrained(pretrained_model_name_or_path,
-                                        **kwargs)
+        model = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-        if not hasattr(model.config, 'n_embd'):
+        if not hasattr(model.config, "n_embd"):
             model.config.n_embd = model.config.hidden_size
         # Make sure to freeze Tranformers model
         if coder_path is not None:
@@ -62,9 +61,7 @@ class GPTPostfixMixin:
         Args:
             coder_path: torch soft prompt file path
         """
-        self.coder = torch.load(
-            coder_path, map_location=torch.device("cpu")
-        )
+        self.coder = torch.load(coder_path, map_location=torch.device("cpu"))
         self.n_steps = len(self.coder)
         print(f"Set soft prompt! (n_steps: {self.n_steps})")
 
@@ -78,20 +75,20 @@ class GPTPostfixMixin:
         self.n_steps = n_steps
 
         if initialize_from_vocab:
-            init_prompt_value = self.transformer.wte.weight[:n_steps]\
-                                                    .clone().detach()
+            init_prompt_value = self.transformer.wte.weight[:n_steps].clone().detach()
         else:
-            init_prompt_value = torch.FloatTensor(
-                            n_steps,
-                            self.config.n_embd)\
-                            .uniform_(-random_range, random_range)
+            init_prompt_value = torch.FloatTensor(n_steps, self.config.n_embd).uniform_(
+                -random_range, random_range
+            )
 
         self.coder = nn.Embedding(n_steps, self.config.n_embd)
         # Initialize weight
         self.coder.weight.data = init_prompt_value
         self.coder.weight.requires_grad_(True)
 
-    def _cat_latent_embeddings_to_input(self, input_embeds, latent_embeds) -> torch.Tensor:
+    def _cat_latent_embeddings_to_input(
+        self, input_embeds, latent_embeds
+    ) -> torch.Tensor:
         inputs_embeds = torch.cat([input_embeds, latent_embeds], dim=1)
         return inputs_embeds
 
@@ -103,9 +100,8 @@ class GPTPostfixMixin:
         n_batches = input_attention_mask.shape[0]
 
         return torch.cat(
-          [input_attention_mask, torch.full((n_batches, n_steps), 1)
-                                      .to(self.device)],
-          dim=1,
+            [input_attention_mask, torch.full((n_batches, n_steps), 1).to(self.device)],
+            dim=1,
         )
 
     def _extend_attention_mask_for_prompts(self, attention_mask):
@@ -115,8 +111,10 @@ class GPTPostfixMixin:
 
         n_batches = attention_mask.shape[0]
         return torch.cat(
-            [attention_mask,
-             torch.full((n_batches, self.n_steps), 1).to(self.device),],
+            [
+                attention_mask,
+                torch.full((n_batches, self.n_steps), 1).to(self.device),
+            ],
             dim=1,
         )
 
@@ -183,48 +181,44 @@ class GPTPostfixMixin:
         if self.disable or past_key_values is not None:
 
             output = super().forward(
-                    input_ids=input_ids,
-                    inputs_embeds=inputs_embeds,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    past_key_values=past_key_values,
-                    **kwargs
-                )
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                labels=labels,
+                past_key_values=past_key_values,
+                **kwargs,
+            )
 
-            if (attention_mask is not None and
-               not hasattr(output, 'attention_mask')):
+            if attention_mask is not None and not hasattr(output, "attention_mask"):
                 output.attention_mask = attention_mask
 
             return output
 
         if input_lengths is not None:
             if input_ids is not None:
-                input_ids, output_ids =\
-                    self._divide_inputs(input_ids, input_lengths)
+                input_ids, output_ids = self._divide_inputs(input_ids, input_lengths)
                 inputs_embeds = self.transformer.wte(input_ids)
                 output_embeds = self.transformer.wte(output_ids)
             elif inputs_embeds is not None:
-                inputs_embeds, output_embeds =\
-                    self._divide_inputs(inputs_embeds, input_lengths)
+                inputs_embeds, output_embeds = self._divide_inputs(
+                    inputs_embeds, input_lengths
+                )
 
-            inputs_embeds = self._add_prompt_embeds(inputs_embeds,
-                                                    output_embeds)
+            inputs_embeds = self._add_prompt_embeds(inputs_embeds, output_embeds)
             input_ids = None
 
             if labels is not None:
-                input_labels, output_labels =\
-                    self._divide_inputs(labels, input_lengths)
-                labels = self._add_prompt_tokens(input_labels,
-                                                 output_labels,
-                                                 -100)
+                input_labels, output_labels = self._divide_inputs(labels, input_lengths)
+                labels = self._add_prompt_tokens(input_labels, output_labels, -100)
 
             if attention_mask is not None:
-                attention_mask, output_attention_mask =\
-                    self._divide_inputs(attention_mask, input_lengths)
+                attention_mask, output_attention_mask = self._divide_inputs(
+                    attention_mask, input_lengths
+                )
 
-                attention_mask = self._add_prompt_tokens(attention_mask,
-                                                         output_attention_mask,
-                                                         1)
+                attention_mask = self._add_prompt_tokens(
+                    attention_mask, output_attention_mask, 1
+                )
                 #  update position ids
                 # position_ids = kwargs.get('position_ids')
 
@@ -242,17 +236,19 @@ class GPTPostfixMixin:
                 #     if past_key_values is not None:
                 #         position_ids = position_ids[:, -1].unsqueeze(-1)
 
-                kwargs['position_ids'] = position_ids
+                kwargs["position_ids"] = position_ids
         else:
             logging.error("input lengths empty or both")
 
-        output = super().forward(input_ids=input_ids,
-                                 inputs_embeds=inputs_embeds,
-                                 attention_mask=attention_mask,
-                                 labels=labels,
-                                 **kwargs)
+        output = super().forward(
+            input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            labels=labels,
+            **kwargs,
+        )
 
-        if not hasattr(output, 'attention_mask'):
+        if not hasattr(output, "attention_mask"):
             output.attention_mask = attention_mask
 
         return output

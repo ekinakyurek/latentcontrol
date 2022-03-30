@@ -1,12 +1,12 @@
 import os
-from absl import logging
+import pdb
 from pathlib import Path
+import torch
+import torch.nn as nn
+from absl import logging
 from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
 from src.postfix_tuner import GPT2PostfixLM, GPTNeoPostfixLM
 from .prompt_coder import GPT2PromptCoderLM, GPTNeoPromptCoderLM
-import torch
-import torch.nn as nn
-import pdb
 
 
 class GPTPromptTuningMixin:
@@ -21,15 +21,14 @@ class GPTPromptTuningMixin:
         padding_idx: int = None,
         **kwargs,
     ):
-        model = super().from_pretrained(pretrained_model_name_or_path,
-                                        **kwargs)
+        model = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-        if not hasattr(model.config, 'n_embd'):
+        if not hasattr(model.config, "n_embd"):
             model.config.n_embd = model.config.hidden_size
 
         # # Make sure to freeze Tranformers model
         for name, param in model.named_parameters():
-            if 'coder' not in name:
+            if "coder" not in name:
                 param.requires_grad = False
 
         if soft_prompt_path is not None:
@@ -73,13 +72,11 @@ class GPTPromptTuningMixin:
         self.n_tokens = n_tokens
 
         if initialize_from_vocab:
-            init_prompt_value = self.transformer.wte.weight[:n_tokens]\
-                                                    .clone().detach()
+            init_prompt_value = self.transformer.wte.weight[:n_tokens].clone().detach()
         else:
             init_prompt_value = torch.FloatTensor(
-                            n_tokens,
-                            self.config.n_embd)\
-                            .uniform_(-random_range, random_range)
+                n_tokens, self.config.n_embd
+            ).uniform_(-random_range, random_range)
 
         self.soft_prompt = nn.Embedding(n_tokens, self.config.n_embd)
         # Initialize weight
@@ -105,8 +102,7 @@ class GPTPromptTuningMixin:
         n_batches = labels.shape[0]
         return torch.cat(
             [
-                torch.full((n_batches, self.n_tokens), ignore_index)\
-                     .to(self.device),
+                torch.full((n_batches, self.n_tokens), ignore_index).to(self.device),
                 labels,
             ],
             dim=1,
@@ -119,8 +115,7 @@ class GPTPromptTuningMixin:
 
         n_batches = attention_mask.shape[0]
         return torch.cat(
-            [torch.full((n_batches, self.n_tokens), 1).to(self.device),
-             attention_mask],
+            [torch.full((n_batches, self.n_tokens), 1).to(self.device), attention_mask],
             dim=1,
         )
 
@@ -132,9 +127,8 @@ class GPTPromptTuningMixin:
         n_batches = input_attention_mask.shape[0]
 
         return torch.cat(
-          [input_attention_mask, torch.full((n_batches, n_steps), 1)
-                                      .to(self.device)],
-          dim=1,
+            [input_attention_mask, torch.full((n_batches, n_steps), 1).to(self.device)],
+            dim=1,
         )
 
     def prepare_inputs_for_generation(self, input_ids, past=None, **kwargs):
@@ -151,10 +145,11 @@ class GPTPromptTuningMixin:
         if attention_mask is not None and position_ids is None:
             if attention_mask.shape[-1] == input_ids.shape[-1]:
                 attention_mask = self._extend_attention_mask_for_prompts(
-                    attention_mask).to(self.device)
+                    attention_mask
+                ).to(self.device)
                 input_lengths = kwargs.get("input_lengths")
                 if input_lengths is not None:
-                    kwargs['input_lengths'] = input_lengths + self.n_tokens
+                    kwargs["input_lengths"] = input_lengths + self.n_tokens
 
             # position_ids = attention_mask[:, self.n_tokens:].long().cumsum(-1) - 1
             # position_ids = torch.cat(
@@ -177,7 +172,7 @@ class GPTPromptTuningMixin:
         }
 
         if kwargs.get("input_lengths") is not None:
-            input['input_lengths'] = kwargs.get("input_lengths")
+            input["input_lengths"] = kwargs.get("input_lengths")
 
         return input
 
@@ -198,14 +193,14 @@ class GPTPromptTuningMixin:
         if self.disable or past_key_values is not None:
 
             output = super().forward(
-                    input_ids=input_ids,
-                    inputs_embeds=inputs_embeds,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    past_key_values=past_key_values,
-                    **kwargs
-                )
-            if not hasattr(output, 'attention_mask'):
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                labels=labels,
+                past_key_values=past_key_values,
+                **kwargs,
+            )
+            if not hasattr(output, "attention_mask"):
                 output.attention_mask = attention_mask
 
             return output
@@ -220,7 +215,9 @@ class GPTPromptTuningMixin:
 
         if attention_mask is not None:
             if attention_mask.shape[-1] == inputs_embeds.shape[1] - self.n_tokens:
-                attention_mask = self._extend_attention_mask_for_prompts(attention_mask).to(self.device)
+                attention_mask = self._extend_attention_mask_for_prompts(
+                    attention_mask
+                ).to(self.device)
 
         position_ids = kwargs.get("position_ids", None)
 
@@ -233,11 +230,11 @@ class GPTPromptTuningMixin:
             position_ids.masked_fill_(attention_mask == 0, 1)
             input_lengths = kwargs.get("input_lengths")
             if input_lengths is not None:
-                kwargs['input_lengths'] = input_lengths + self.n_tokens
+                kwargs["input_lengths"] = input_lengths + self.n_tokens
             if past_key_values is not None:
                 position_ids = position_ids[:, -1].unsqueeze(-1)
 
-        kwargs['position_ids'] = position_ids
+        kwargs["position_ids"] = position_ids
 
         output = super().forward(
             attention_mask=attention_mask,
@@ -246,7 +243,7 @@ class GPTPromptTuningMixin:
             past_key_values=past_key_values,
             **kwargs,
         )
-        if not hasattr(output, 'attention_mask'):
+        if not hasattr(output, "attention_mask"):
             output.attention_mask = attention_mask
         return output
 

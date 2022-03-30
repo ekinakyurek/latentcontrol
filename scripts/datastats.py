@@ -1,10 +1,11 @@
 import os
-from typing import List, Mapping
-import numpy as np
-from src.utils import set_seed
 from collections import Counter
+from typing import List, Mapping
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
+from src.utils import set_seed
+
 
 def read_data(file: str = "datasets/SimpleKB/corpus.txt") -> List[List[str]]:
     data = []
@@ -14,6 +15,7 @@ def read_data(file: str = "datasets/SimpleKB/corpus.txt") -> List[List[str]]:
             words = ["[s]"] + words + ["[e]"]
             data.append(words)
     return data
+
 
 def get_cx(data: List[List[str]]) -> Counter:
     cx = Counter()
@@ -26,9 +28,10 @@ def get_cx(data: List[List[str]]) -> Counter:
 def get_cxy(data: List[List[str]]) -> Counter:
     cxy = Counter()
     for d in data:
-        for i in range(len(d)-1):
-            cxy[(d[i], d[i+1])] += 1
+        for i in range(len(d) - 1):
+            cxy[(d[i], d[i + 1])] += 1
     return cxy
+
 
 def get_py_x(cx: Mapping, cxy: Mapping) -> Mapping:
     cxy = dict(cxy)
@@ -45,43 +48,36 @@ def main():
     sns.set_theme()
     plt.style.use(".mplstyle")
     os.makedirs("plots", exist_ok=True)
-    
+
     set_seed(0)
-    
+
     data = read_data()
     cx = get_cx(data)
     cxy = get_cxy(data)
     py_x = get_py_x(cx, cxy)
-    
+
     vocab = list(cx.keys())
     N = len(vocab)
     G = np.zeros((N, N), dtype=np.float32)
-    
+
     for y, v in py_x.items():
         j = vocab.index(y)
         for x, p in v.items():
             i = vocab.index(x)
-            G[i,j] = p
-    
-    ax = sns.heatmap(G, 
-                     xticklabels=vocab, 
-                     yticklabels=vocab, 
-                     vmin=0, 
-                     vmax=1.0, 
-                     annot=True, 
-                     fmt=".1f")
-    
-    ax.xaxis.tick_top() # x axis on top
-    ax.xaxis.set_label_position('top')
+            G[i, j] = p
+
+    ax = sns.heatmap(
+        G, xticklabels=vocab, yticklabels=vocab, vmin=0, vmax=1.0, annot=True, fmt=".1f"
+    )
+
+    ax.xaxis.tick_top()  # x axis on top
+    ax.xaxis.set_label_position("top")
     ax.tick_params(length=0)
     ax.set_title("P(X|Y)")
     plt.xticks(rotation=90)
     plt.tight_layout()
-    plt.savefig('plots/bigram.png', dpi=300)
-    
-    
+    plt.savefig("plots/bigram.png", dpi=300)
+
+
 if __name__ == "__main__":
     main()
-
-        
-        

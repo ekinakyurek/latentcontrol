@@ -1,12 +1,13 @@
 import os
-from typing import Mapping, List
-from src.utils import set_seed
 from dataclasses import dataclass
+from typing import List, Mapping
+from src.utils import set_seed
 
 
 @dataclass
 class Animal:
     """Represents animals with their name and family"""
+
     name: str
     family: str
 
@@ -17,6 +18,7 @@ class Animal:
 @dataclass
 class Universe:
     """Represents animals with their name and relations"""
+
     name: str
     relations: Mapping
 
@@ -27,6 +29,7 @@ class Universe:
 @dataclass
 class KBEntry:
     """Knowledge base entry"""
+
     universe: Universe
     animal1: Animal
     animal2: Animal
@@ -50,9 +53,11 @@ def generate_KB(animals: List[Animal], universes: List[Universe]) -> List[KBEntr
     return KB
 
 
-def write_KB(KB: List[KBEntry],
-             file_name: str = "corpus.txt",
-             corpus_folder: str = "datasets/SimpleKB/"):
+def write_KB(
+    KB: List[KBEntry],
+    file_name: str = "corpus.txt",
+    corpus_folder: str = "datasets/SimpleKB/",
+):
     """Writes knowledge base to a text file"""
     os.makedirs(corpus_folder, exist_ok=True)
     with open(os.path.join(corpus_folder, file_name), "w") as f:
@@ -64,23 +69,36 @@ def main():
 
     set_seed(0)
 
-    animals = [Animal("dogs", "mamal"),
-               Animal("cats", "mamal"),
-               Animal("frogs", "amphibian"),
-               Animal("salamenders", "amphibian"),
-               Animal("snakes", "reptile"),
-               Animal("crocodiles", "reptile")]
+    animals = [
+        Animal("dogs", "mamal"),
+        Animal("cats", "mamal"),
+        Animal("frogs", "amphibian"),
+        Animal("salamenders", "amphibian"),
+        Animal("snakes", "reptile"),
+        Animal("crocodiles", "reptile"),
+    ]
 
-    universes = [Universe("Earth",
-                    {"mamal": {"likes": ("mamal",), "dislikes": ("reptile", "amphibian")},
-                     "reptile": {"likes": ("amphibian", "reptile"), "dislikes": ("mamal")},
-                     "amphibian": {"likes": ("amphibian", "reptile"), "dislikes": ("mamal")},
-                    }),
-                Universe("Metaverse",
-                     {"mamal": {"likes": ("reptile",), "dislikes": ("mamal", "amphibian")},
-                      "reptile": {"likes": ("mamal", "reptile"), "dislikes": ("amphibian")},
-                      "amphibian": {"likes": ("reptile", ), "dislikes": ("mamal", "amphibian")},
-                     })]
+    universes = [
+        Universe(
+            "Earth",
+            {
+                "mamal": {"likes": ("mamal",), "dislikes": ("reptile", "amphibian")},
+                "reptile": {"likes": ("amphibian", "reptile"), "dislikes": "mamal"},
+                "amphibian": {"likes": ("amphibian", "reptile"), "dislikes": "mamal"},
+            },
+        ),
+        Universe(
+            "Metaverse",
+            {
+                "mamal": {"likes": ("reptile",), "dislikes": ("mamal", "amphibian")},
+                "reptile": {"likes": ("mamal", "reptile"), "dislikes": "amphibian"},
+                "amphibian": {
+                    "likes": ("reptile",),
+                    "dislikes": ("mamal", "amphibian"),
+                },
+            },
+        ),
+    ]
 
     write_KB(generate_KB(animals, universes))
 

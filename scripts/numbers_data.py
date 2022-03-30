@@ -1,16 +1,16 @@
-from collections import namedtuple
 import json
 import logging
-import pickle
-import torch
 import math
 import pdb
-from typing import List
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
+import pickle
+from collections import namedtuple
 from operator import add, mul, sub
+from typing import List
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
-import pdb
+
 
 Example = namedtuple("Example", "x1 x2 op y")
 
@@ -30,27 +30,29 @@ class ArithmethicDataset(Dataset):
         self.data = self.generate_data(**kwargs)
 
     def random_with_n_digits(rng, n):
-        range_start = 10**(n-1)
-        range_end = (10**n)-1
+        range_start = 10 ** (n - 1)
+        range_end = (10**n) - 1
         return rng.integers(range_start, range_end)
 
     def save_to_file(self, path):
         str_data = [d for d in self]
-        with open(path, 'wb') as handle:
-            if path.endswith('json'):
+        with open(path, "wb") as handle:
+            if path.endswith("json"):
                 json.dump(handle, str_data)
-            elif path.endswith('pickle'):
+            elif path.endswith("pickle"):
                 pickle.dump(str_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
             else:
                 raise ValueError("Unknown data file format")
 
-    def generate_data(self,
-                      max_digits: int = 5,
-                      operations: List["str"] = ["add"],
-                      negatives: bool = False,
-                      N_per_digit: int = 200,
-                      split: str = "train",
-                      seed: int = 0) -> List:
+    def generate_data(
+        self,
+        max_digits: int = 5,
+        operations: List["str"] = ["add"],
+        negatives: bool = False,
+        N_per_digit: int = 200,
+        split: str = "train",
+        seed: int = 0,
+    ) -> List:
 
         rng = np.random.default_rng(seed)
         examples = set()
@@ -59,8 +61,8 @@ class ArithmethicDataset(Dataset):
             for e1 in range(max_digits):
                 for e2 in range(max_digits):
                     for _ in range(N_per_digit * e1 * e2):
-                        x1 = ArithmethicDataset.random_with_n_digits(rng, e1+1)
-                        x2 = ArithmethicDataset.random_with_n_digits(rng, e2+1)
+                        x1 = ArithmethicDataset.random_with_n_digits(rng, e1 + 1)
+                        x2 = ArithmethicDataset.random_with_n_digits(rng, e2 + 1)
                         if not negatives and operation == "sub":
                             if op_fn(x1, x2) < 0:
                                 x2, x1 = x1, x2
@@ -91,39 +93,43 @@ class ArithmethicDataset(Dataset):
             inputs = [d[0] for d in data]
             targets = [d[1] for d in data]
 
-            inputs = tokenizer.batch_encode_plus(inputs,
-                                                 padding="longest",
-                                                 return_tensors='pt')
+            inputs = tokenizer.batch_encode_plus(
+                inputs, padding="longest", return_tensors="pt"
+            )
 
-            targets = tokenizer.batch_encode_plus(targets,
-                                                  padding="longest",
-                                                  return_tensors='pt')
+            targets = tokenizer.batch_encode_plus(
+                targets, padding="longest", return_tensors="pt"
+            )
 
-            input_ids = torch.cat([inputs.input_ids,
-                                   targets.input_ids],
-                                  dim=1)
+            input_ids = torch.cat([inputs.input_ids, targets.input_ids], dim=1)
 
             labels = torch.cat(
-                [torch.zeros_like(inputs.input_ids) + tokenizer.pad_token_id,
-                 targets.input_ids], dim=1)
+                [
+                    torch.zeros_like(inputs.input_ids) + tokenizer.pad_token_id,
+                    targets.input_ids,
+                ],
+                dim=1,
+            )
 
-            attention_mask = torch.cat([inputs.attention_mask,
-                                        targets.attention_mask],
-                                       dim=1)
+            attention_mask = torch.cat(
+                [inputs.attention_mask, targets.attention_mask], dim=1
+            )
 
             labels = labels.masked_fill(
-                labels == tokenizer.pad_token_id, -100)  # GPT-2 specific
+                labels == tokenizer.pad_token_id, -100
+            )  # GPT-2 specific
 
             input_lengths = torch.tensor([inputs.input_ids.shape[1]])
 
             data = {
-                'input_ids': input_ids,
-                'labels': labels,
-                'attention_mask': attention_mask,
-                'input_lengths': input_lengths,
+                "input_ids": input_ids,
+                "labels": labels,
+                "attention_mask": attention_mask,
+                "input_lengths": input_lengths,
             }
 
             return data
+
         return collate
 
     def __len__(self):
@@ -138,7 +144,7 @@ class ArithmethicDataset(Dataset):
             return "times"
 
     def digit_to_str(self, digit: int):
-        return ' '.join(list(str(digit)))
+        return " ".join(list(str(digit)))
 
     def stringify(self, ex: Example):
         op_str = self.op_to_str(ex.op)
@@ -155,7 +161,7 @@ class ArithmethicDataset(Dataset):
 
 
 if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained('gpt2')
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
 
     datasets = [ArithmethicDataset(split=s) for s in ("train", "dev", "test")]
@@ -163,15 +169,11 @@ if __name__ == "__main__":
     assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0
 
     collate_fn = ArithmethicDataset.get_collate(tokenizer)
-    train_loader = DataLoader(datasets[0],
-                              batch_size=2,
-                              shuffle=True,
-                              collate_fn=collate_fn)
+    train_loader = DataLoader(
+        datasets[0], batch_size=2, shuffle=True, collate_fn=collate_fn
+    )
 
     logging.info(f"{[len(d) for d in datasets]}")
 
     for data in train_loader:
         pdb.set_trace()
-
-
-
