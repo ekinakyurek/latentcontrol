@@ -69,7 +69,7 @@ def save_model(model,
 
 
 def save_evals(inputs, outputs, answers, folder, tag="test", iter=0):
-    path = os.path.join(folder, f'iter-{iter}-{tag}.txt')
+    path = os.path.join(folder, f'iter-{iter}-{tag}.tsv')
     with open(path, "w") as f:
         for (i, o, a) in zip(inputs, outputs, answers):
             print(f"{i}\t{o}\t{a}", file=f)

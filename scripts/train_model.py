@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 import os
 from absl import app
 from absl import flags
@@ -6,9 +7,13 @@ from torch.optim import AdamW
 from transformers import AutoTokenizer
 from transformers import get_scheduler
 
-from src.prompt_tuner import GPT2PromptTuningLM, GPTNeoPromptTuningLM  # noqa: F401, E501
 from scripts.numbers_data import ArithmethicDataset  # noqa: F401, E501
-from src.prompt_coder import GPT2PromptCoderLM, GPTNeoPromptCoderLM  # noqa: F401, E501
+from scripts.parity_data import ParityDataset  # noqa: F401, E501
+from src.prompt_coder import GPT2PromptCoderLM, GPTNeoPromptCoderLM, GPTPromptCoderMixin  # noqa: F401, E501
+from src.postfix_tuner import GPT2PostfixLM, GPTNeoPostfixLM, GPTPostfixMixin  # noqa: F401, E501
+from src.prompt_tuner import GPT2PromptTuningLM, GPTNeoPromptTuningLM  # noqa: F401, E501
+from src.prompt_tuner import GPT2PromptTuningCoderLM, GPTNeoPromptTuningCoderLM  # noqa: F401, E501
+from src.prompt_tuner import GPT2PromptTuningPostfixLM, GPTNeoPromptTuningPostfixLM  # noqa: F401, E501
 from accelerate import Accelerator
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -16,6 +21,7 @@ from tensorboardX import global_writer
 from tensorboardX.global_writer import GlobalSummaryWriter
 import src.utils as utils
 import src.metrics as metrics
+import pdb
 
 FLAGS = flags.FLAGS
 
@@ -52,6 +58,9 @@ flags.DEFINE_string('lr_scheduler_type', 'linear',
 flags.DEFINE_string('model', 'gpt-2',
                     help='gpt-2')
 
+flags.DEFINE_string('model_type', 'PromptTuningCoderLM',
+                    help='Which gadget to use')
+
 flags.DEFINE_string('dataset', 'ArithmethicDataset',
                     help='dataset to train on')
 
@@ -70,22 +79,136 @@ flags.DEFINE_integer('seed', 0,
 flags.DEFINE_integer('gaccum', 1,
                      help="gradient accumulation")
 
+flags.DEFINE_integer('padding_idx', None,
+                     help="Padding idx")
+
+flags.DEFINE_boolean('disable_tqdm', False,
+                     help='Disable tqdm')
+
+
+def _experiment_suffix(FLAGS):
+    model_name = FLAGS.model.replace("/", "_")
+    data_name = FLAGS.dataset
+    suffix = "_".join((model_name, data_name, FLAGS.model_type))
+    return suffix
+
+
+def _get_info_str(FLAGS):
+    infostr = [f"- {k}: {v.value}" for k, v in FLAGS.__flags.items()]
+    infostr = "   \n".join(infostr)
+    return infostr
+
+
+def get_model(FLAGS):
+    if FLAGS.model_type == 'FineTuning':
+        model_type = 'PromptCoderLM'
+    else:
+        model_type = FLAGS.model_type
+
+    if "gpt2" in FLAGS.model:
+        ModelType = eval("GPT2" + model_type)
+    else:
+        ModelType = eval("GPTNeo" + model_type)
+
+    kwargs = {'initialize_from_vocab': FLAGS.init_from_vocab,
+              'padding_idx': FLAGS.padding_idx}
+
+    params_to_optimize = []
+    if 'Prompt' in FLAGS.model_type:
+        params_to_optimize.append('soft_prompt')
+        kwargs['n_tokens'] = FLAGS.n_prompt_tokens
+
+    if 'Postfix' in FLAGS.model_type or 'Coder' in FLAGS.model_type:
+        params_to_optimize.append('coder')
+        kwargs['n_steps'] = FLAGS.n_coder_steps
+
+    if len(params_to_optimize) == 0:
+        params_to_optimize.append('')
+
+    model = ModelType.from_pretrained(FLAGS.model, **kwargs)
+
+    logging.info(str(ModelType))
+
+    optimizer_grouped_parameters = [
+        {
+         "params": [p for name, p in model.named_parameters()
+                    if any((s in name for s in params_to_optimize))],
+         "weight_decay": FLAGS.weight_decay,
+         "names": [name for name, p in model.named_parameters()
+                   if any((s in name for s in params_to_optimize))],
+        }]
+    logging.info(f"Params to optimize: "
+                 f"{optimizer_grouped_parameters[0]['names']}")
+
+    optimizer = AdamW(optimizer_grouped_parameters, lr=FLAGS.learning_rate)
+
+    lr_scheduler = get_scheduler(
+        name=FLAGS.lr_scheduler_type,
+        optimizer=optimizer,
+        num_warmup_steps=FLAGS.num_warmup_steps,
+        num_training_steps=FLAGS.max_train_steps,
+    )
+    return model, optimizer, lr_scheduler
+
+
+def get_data(FLAGS):
+    DataType = eval(FLAGS.dataset)
+    datasets = [DataType(split=s, seed=FLAGS.seed) for s in ("train", "dev", "test")]
+    return DataType, datasets
+
+
+def get_tokenizer(FLAGS):
+    tokenizer = AutoTokenizer.from_pretrained(FLAGS.model)
+    if FLAGS.padding_idx is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        FLAGS.padding_idx = tokenizer.pad_token_id
+    else:
+        raise ValueError("Extra pad token id is not implemented")
+
+    return tokenizer
+
+
+def initializer_logger(FLAGS):
+    FLAGS.suffix = _experiment_suffix(FLAGS)
+    global_writer._writer = GlobalSummaryWriter(
+        logdir=FLAGS.logdir,
+        filename_suffix=FLAGS.suffix
+    )
+
+
+def get_batch_loader(DataType, tokenizer, dataset):
+    collate_fn = DataType.get_collate(tokenizer)
+    loader = DataLoader(dataset,
+                        batch_size=FLAGS.batch_size,
+                        shuffle=(dataset.split == 'train'),
+                        collate_fn=collate_fn)
+    return loader
+
+
+def get_checkpoint_folder(FLAGS):
+    path = os.path.join(FLAGS.expdir, 'checkpoints/')
+    os.makedirs(path, exist_ok=True)
+    return path
+
 
 def train_eval_loop(model, tokenizer, dataloader, tag="val", iter=0):
     writer = GlobalSummaryWriter.getSummaryWriter()
     total_loss = 0.0
     total_count = 0.0
-    for data in tqdm(dataloader):
-        output = model(input_ids=data['input_ids'],
-                       attention_mask=data['attention_mask'],
-                       labels=data['labels'],
-                       input_lengths=data['input_lengths'][0])
+    for data in tqdm(dataloader, disable=FLAGS.disable_tqdm):
+        input = dict(input_ids=data['input_ids'],
+                     attention_mask=data['attention_mask'],
+                     labels=data['labels'])
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+            input['input_lengths'] = data['input_lengths'][0]
+        output = model(**input)
         loss = output.loss
-        total_loss += loss.item()
-        total_count += data['input_ids'].shape[0]
+        token_count = (data['labels'] != -100).sum().item()
+        total_loss += loss.item() * token_count
+        total_count += token_count
 
     avg_loss = total_loss/total_count
-    logging.info(f"Average val loss: {avg_loss}")
+    logging.info(f"eval/{tag}/loss/{iter}: {avg_loss}")
     writer.add_scalar(f"eval/{tag}/loss", avg_loss, iter)
 
 
@@ -93,20 +216,22 @@ def train_loop(model, tokenizer, optimizer, accelerator, dataloader, iter=0):
     writer = GlobalSummaryWriter.getSummaryWriter()
     total_loss = 0.0
     total_count = 0.0
-    for data in tqdm(dataloader):
+    for data in tqdm(dataloader, disable=FLAGS.disable_tqdm):
         optimizer.zero_grad()
-        output = model(input_ids=data['input_ids'],
-                       attention_mask=data['attention_mask'],
-                       input_lengths=data['input_lengths'][0],
-                       labels=data['labels'],
-                       )
+        input = dict(input_ids=data['input_ids'],
+                     attention_mask=data['attention_mask'],
+                     labels=data['labels'])
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+            input['input_lengths'] = data['input_lengths'][0]
+        output = model(**input)
         loss = output.loss
         accelerator.backward(loss)
         optimizer.step()
-        total_loss += loss.item()
-        total_count += data['input_ids'].shape[0]
+        token_count = (data['labels'] != -100).sum().item()
+        total_loss += loss.item() * token_count
+        total_count += token_count
     avg_loss = total_loss/total_count
-    logging.info(f"Average train loss: {avg_loss}")
+    logging.info(f"train/loss/{iter}: {avg_loss}")
     writer.add_scalar("train/loss", avg_loss, iter)
 
 
@@ -133,11 +258,14 @@ def generation_loop(model,
 
     for (t, data) in enumerate(dataloader):
         limit = data['input_lengths'][0]
-        output = model.generate(
-            input_ids=data['input_ids'][:, :limit],
-            attention_mask=data['attention_mask'][:, :limit],
-            input_lengths=limit,
-            max_length=32)
+        input = dict(input_ids=data['input_ids'][:, :limit],
+                     attention_mask=data['attention_mask'][:, :limit],
+                     max_length=32)
+
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+            input['input_lengths'] = limit
+
+        output = model.generate(**input)
 
         generations = tokenizer.batch_decode(output,
                                              skip_special_tokens=True)
@@ -161,125 +289,17 @@ def generation_loop(model,
             break
 
     accuracy = metrics.char_accuracy(string_outputs, string_answers)
-    logging.info(f"Char accuracy: {accuracy}")
+    logging.info(f"eval/{tag}/accuracy/{iter}: {accuracy}")
     writer.add_scalar(f"eval/{tag}/accuracy", accuracy, iter)
+
+    accuracy = metrics.exact_accuracy(string_outputs, string_answers)
+    logging.info(f"eval/{tag}/exactmatch/{iter}: {accuracy}")
+    writer.add_scalar(f"eval/{tag}/exactmatch", accuracy, iter)
 
     if disable:
         model.disable = prev_disable
 
     return string_inputs, string_outputs, string_answers,
-
-
-def _experiment_suffix(FLAGS):
-    model_name = FLAGS.model.replace("/", "_")
-    data_name = FLAGS.dataset
-    if FLAGS.n_coder_steps is not None:
-        model_type = "LatentCoder"
-    elif FLAGS.n_prompt_tokens is not None:
-        model_type = "PromptTuning"
-    else:
-        model_type = "Finetuning"
-
-    suffix = "_".join((model_name, data_name, model_type))
-    return suffix
-
-
-def _get_info_str(FLAGS):
-    infostr = [f"- {k}: {v.value}" for k, v in FLAGS.__flags.items()]
-    infostr = "   \n".join(infostr)
-    return infostr
-
-
-def get_model(FLAGS):
-    if "gpt2" in FLAGS.model:
-        ModelType = "GPT2"
-    else:
-        ModelType = "GPTNeo"
-
-    if FLAGS.n_prompt_tokens is not None:
-        ModelType += "PromptTuningLM"
-        ModelType = eval(ModelType)
-        model = ModelType.from_pretrained(
-                    FLAGS.model,
-                    n_tokens=FLAGS.n_prompt_tokens,
-                    initialize_from_vocab=FLAGS.init_from_vocab
-                )
-
-        logging.info("Prompt-Tuning experiments")
-        params_to_optimize = 'soft_prompt'
-    elif FLAGS.n_coder_steps is not None:
-        ModelType += "PromptCoderLM"
-        ModelType = eval(ModelType)
-        model = ModelType.from_pretrained(
-            FLAGS.model,
-            n_steps=FLAGS.n_coder_steps,
-            initialize_from_vocab=FLAGS.init_from_vocab
-        )
-        logging.info("Prompt-Coding experiments")
-        params_to_optimize = 'coder'
-    else:  # finetuning
-        ModelType += "PromptCoderLM"
-        ModelType = eval(ModelType)
-        model = ModelType.from_pretrained(
-            FLAGS.model,
-            n_steps=None,
-        )
-        logging.info("Finetuning experiments")
-        params_to_optimize = ''
-
-    optimizer_grouped_parameters = [
-        {
-         "params": [p for name, p in model.named_parameters()
-                    if params_to_optimize in name],
-         "weight_decay": FLAGS.weight_decay,
-         "names": [name for name, p in model.named_parameters()
-                   if params_to_optimize in name],
-        }]
-
-    optimizer = AdamW(optimizer_grouped_parameters, lr=FLAGS.learning_rate)
-
-    lr_scheduler = get_scheduler(
-        name=FLAGS.lr_scheduler_type,
-        optimizer=optimizer,
-        num_warmup_steps=FLAGS.num_warmup_steps,
-        num_training_steps=FLAGS.max_train_steps,
-    )
-    return model, optimizer, lr_scheduler
-
-
-def get_data(FLAGS):
-    DataType = eval(FLAGS.dataset)
-    datasets = [DataType(split=s) for s in ("train", "dev", "test")]
-    return DataType, datasets
-
-
-def get_tokenizer(FLAGS):
-    tokenizer = AutoTokenizer.from_pretrained(FLAGS.model)
-    tokenizer.pad_token = tokenizer.eos_token
-    return tokenizer
-
-
-def initializer_logger(FLAGS):
-    FLAGS.suffix = _experiment_suffix(FLAGS)
-    global_writer._writer = GlobalSummaryWriter(
-        logdir=FLAGS.logdir,
-        filename_suffix=FLAGS.suffix
-    )
-
-
-def get_batch_loader(DataType, tokenizer, dataset):
-    collate_fn = DataType.get_collate(tokenizer)
-    loader = DataLoader(dataset,
-                        batch_size=FLAGS.batch_size,
-                        shuffle=True,
-                        collate_fn=collate_fn)
-    return loader
-
-
-def get_checkpoint_folder(FLAGS):
-    path = os.path.join(FLAGS.expdir, FLAGS.suffix, 'checkpoints/')
-    os.makedirs(path, exist_ok=True)
-    return path
 
 
 def train(_):
@@ -288,7 +308,7 @@ def train(_):
     infostr = _get_info_str(FLAGS)
     logging.info(infostr)
     writer.add_text("FLAGS", infostr, 0)
-    assert not (FLAGS.n_prompt_tokens and FLAGS.n_coder_steps)
+    # assert not (FLAGS.n_prompt_tokens and FLAGS.n_coder_steps)
 
     utils.set_seed(FLAGS.seed)
 

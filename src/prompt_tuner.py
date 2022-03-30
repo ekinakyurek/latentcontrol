@@ -2,8 +2,11 @@ import os
 from absl import logging
 from pathlib import Path
 from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
+from src.postfix_tuner import GPT2PostfixLM, GPTNeoPostfixLM
+from .prompt_coder import GPT2PromptCoderLM, GPTNeoPromptCoderLM
 import torch
 import torch.nn as nn
+import pdb
 
 
 class GPTPromptTuningMixin:
@@ -15,6 +18,7 @@ class GPTPromptTuningMixin:
         n_tokens: int = None,
         initialize_from_vocab: bool = True,
         random_range: float = 0.5,
+        padding_idx: int = None,
         **kwargs,
     ):
         model = super().from_pretrained(pretrained_model_name_or_path,
@@ -23,9 +27,10 @@ class GPTPromptTuningMixin:
         if not hasattr(model.config, 'n_embd'):
             model.config.n_embd = model.config.hidden_size
 
-        # Make sure to freeze Tranformers model
-        for param in model.parameters():
-            param.requires_grad = False
+        # # Make sure to freeze Tranformers model
+        for name, param in model.named_parameters():
+            if 'coder' not in name:
+                param.requires_grad = False
 
         if soft_prompt_path is not None:
             model.set_soft_prompt_embeds(soft_prompt_path)
@@ -38,6 +43,10 @@ class GPTPromptTuningMixin:
             )
 
         model.disable = False
+
+        if padding_idx is not None:
+            model.transformer.wte.padding_idx = padding_idx
+
         return model
 
     def set_soft_prompt_embeds(
@@ -141,18 +150,24 @@ class GPTPromptTuningMixin:
 
         if attention_mask is not None and position_ids is None:
             if attention_mask.shape[-1] == input_ids.shape[-1]:
-                attention_mask = self._extend_attention_mask_for_prompts(attention_mask).to(self.device)
-            position_ids = attention_mask[:, self.n_tokens:].long().cumsum(-1) - 1
-            position_ids = torch.cat(
-                    [position_ids.new_ones((position_ids.shape[0], self.n_tokens)), position_ids], dim=-1
-                )
+                attention_mask = self._extend_attention_mask_for_prompts(
+                    attention_mask).to(self.device)
+                input_lengths = kwargs.get("input_lengths")
+                if input_lengths is not None:
+                    kwargs['input_lengths'] = input_lengths + self.n_tokens
+
+            # position_ids = attention_mask[:, self.n_tokens:].long().cumsum(-1) - 1
+            # position_ids = torch.cat(
+            #         [position_ids.new_ones((position_ids.shape[0], self.n_tokens)), position_ids], dim=-1
+            #     )
+            position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
             if past:
                 position_ids = position_ids[:, -1].unsqueeze(-1)
         else:
             position_ids = None
 
-        return {
+        input = {
             "input_ids": input_ids,
             "past_key_values": past,
             "use_cache": kwargs.get("use_cache"),
@@ -160,6 +175,11 @@ class GPTPromptTuningMixin:
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
+
+        if kwargs.get("input_lengths") is not None:
+            input['input_lengths'] = kwargs.get("input_lengths")
+
+        return input
 
     def save_soft_prompt(self, path: str, filename: str = "soft_prompt.model"):
         Path(path).mkdir(parents=True, exist_ok=True)
@@ -172,11 +192,11 @@ class GPTPromptTuningMixin:
         attention_mask=None,
         inputs_embeds=None,
         labels=None,
-        input_lengths=None,
         past_key_values=None,
         **kwargs,
     ):
         if self.disable or past_key_values is not None:
+
             output = super().forward(
                     input_ids=input_ids,
                     inputs_embeds=inputs_embeds,
@@ -185,7 +205,7 @@ class GPTPromptTuningMixin:
                     past_key_values=past_key_values,
                     **kwargs
                 )
-            if attention_mask is not None:
+            if not hasattr(output, 'attention_mask'):
                 output.attention_mask = attention_mask
 
             return output
@@ -202,50 +222,18 @@ class GPTPromptTuningMixin:
             if attention_mask.shape[-1] == inputs_embeds.shape[1] - self.n_tokens:
                 attention_mask = self._extend_attention_mask_for_prompts(attention_mask).to(self.device)
 
-        # if generate:
-        #     output = self.transformer.forward(
-        #         inputs_embeds=inputs_embeds,
-        #         attention_mask=attention_mask,
-        #         output_hidden_states=True,
-        #         use_cache=True,
-        #         **kwargs,
-        #     )
-        #     generations = []
-        #     for step in range(max_length):
-        #         attention_mask =\
-        #             self._extend_attention_mask_to_right(attention_mask,
-        #                                                  n_steps=1)
-
-        #         lm_logits = self.lm_head(output[0][:, -1:, :]).contiguous()
-
-        #         lm_ids = torch.argmax(lm_logits, dim=-1)
-
-        #         generations.append(lm_ids)
-
-        #         current_embed = self.transformer.wte(lm_ids)
-
-        #         output = self.transformer.forward(
-        #             inputs_embeds=current_embed,
-        #             attention_mask=attention_mask,
-        #             output_hidden_states=True,
-        #             use_cache=True,
-        #             past_key_values=output.past_key_values,
-        #             **kwargs,
-        #         )
-
-        #     output.generations = torch.cat(generations, dim=1)
-        #     return output.generations
-
-        # else:
-
         position_ids = kwargs.get("position_ids", None)
 
         if attention_mask is not None and position_ids is None:
-            position_ids = attention_mask[:, self.n_tokens:].long().cumsum(-1) - 1
-            position_ids = torch.cat(
-                    [position_ids.new_ones((position_ids.shape[0], self.n_tokens)), position_ids], dim=-1
-                )
+            # position_ids = attention_mask[:, self.n_tokens:].long().cumsum(-1) - 1
+            # position_ids = torch.cat(
+            #         [position_ids.new_ones((position_ids.shape[0], self.n_tokens)), position_ids], dim=-1
+            #     )
+            position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
+            input_lengths = kwargs.get("input_lengths")
+            if input_lengths is not None:
+                kwargs['input_lengths'] = input_lengths + self.n_tokens
             if past_key_values is not None:
                 position_ids = position_ids[:, -1].unsqueeze(-1)
 
@@ -258,7 +246,8 @@ class GPTPromptTuningMixin:
             past_key_values=past_key_values,
             **kwargs,
         )
-        output.attention_mask = attention_mask
+        if not hasattr(output, 'attention_mask'):
+            output.attention_mask = attention_mask
         return output
 
 
@@ -268,5 +257,25 @@ class GPT2PromptTuningLM(GPTPromptTuningMixin, GPT2LMHeadModel):
 
 
 class GPTNeoPromptTuningLM(GPTPromptTuningMixin, GPTNeoForCausalLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPT2PromptTuningCoderLM(GPTPromptTuningMixin, GPT2PromptCoderLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPTNeoPromptTuningCoderLM(GPTPromptTuningMixin, GPTNeoPromptCoderLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPT2PromptTuningPostfixLM(GPTPromptTuningMixin, GPT2PostfixLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPTNeoPromptTuningPostfixLM(GPTPromptTuningMixin, GPTNeoPostfixLM):
     def __init__(self, config):
         super().__init__(config)

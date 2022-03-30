@@ -138,7 +138,7 @@ RUN $conda install -y \
 # Some compilers can use OpenMP for faster builds.
 ENV LD_PRELOAD=/opt/conda/lib/libiomp5.so:$LD_PRELOAD
 ENV KMP_WARNINGS=0
-ENV KMP_AFFINITY="granularity=fine,nonverbose,compact,1,0"
+# ENV KMP_AFFINITY="granularity=fine,nonverbose,compact,1,0"
 ENV KMP_BLOCKTIME=0
 
 ########################################################################
@@ -171,8 +171,8 @@ ENV LD_PRELOAD=/opt/conda/lib/libjemalloc.so:$LD_PRELOAD
 ENV MALLOC_CONF=background_thread:true,metadata_thp:auto,dirty_decay_ms:30000,muzzy_decay_ms:30000
 
 # Settings common to both gomp and iomp.
-ENV OMP_PROC_BIND=CLOSE
-ENV OMP_SCHEDULE=STATIC
+# ENV OMP_PROC_BIND=CLOSE
+# ENV OMP_SCHEDULE=STATIC
 
 # The Docker Daemon cache memory may be insufficient to hold the entire cache.
 # A small Garbage Collection (GC) `defaultKeepStorage` value may slow builds
@@ -488,6 +488,7 @@ LABEL maintainer=akyurekekin@gmail.com
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONIOENCODING=UTF-8
+ENV CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 # Set as `ARG`s to reduce image footprint but not affect the resulting images.
 ARG PYTHONDONTWRITEBYTECODE=1
@@ -588,15 +589,15 @@ RUN git clone https://github.com/ekinakyurek/fairseq $HOME/fairseq && \
     python -m pip install --no-cache-dir --no-deps $HOME/fairseq
 
 # Settings common to both gomp and iomp.
-ENV OMP_PROC_BIND=CLOSE
-ENV OMP_SCHEDULE=STATIC
+# ENV OMP_PROC_BIND=CLOSE
+# ENV OMP_SCHEDULE=STATIC
 # Use Intel OpenMP with optimizations. See documentation for details.
 # https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
 # https://intel.github.io/intel-extension-for-pytorch/tutorials/performance_tuning/tuning_guide.html
 ENV KMP_WARNINGS=0
 ENV KMP_BLOCKTIME=0
 ENV LD_PRELOAD=/opt/conda/lib/libiomp5.so:$LD_PRELOAD
-ENV KMP_AFFINITY="granularity=fine,nonverbose,compact,1,0"
+# ENV KMP_AFFINITY="granularity=fine,nonverbose,compact,1,0"
 
 # Use Jemalloc for faster and more efficient memory management.
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD

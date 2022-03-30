@@ -22,6 +22,6 @@ bitarray
 hydra-core
 omegaconf
 sacrebleu
-tensorboardX
 ipywidgets
-ipdb
+tensorboardX
+tensorboard_reducer

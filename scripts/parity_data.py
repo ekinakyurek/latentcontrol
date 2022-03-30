@@ -8,14 +8,13 @@ import pdb
 from typing import List
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-from operator import add, mul, sub
 from transformers import AutoTokenizer
-import pdb
-
-Example = namedtuple("Example", "x1 x2 op y")
 
 
-class ArithmethicDataset(Dataset):
+Example = namedtuple("Example", "x1 y")
+
+
+class ParityDataset(Dataset):
 
     split_ratios: List = [("train", 0.8), ("dev", 0.1), ("test", 0.1)]
 
@@ -30,9 +29,7 @@ class ArithmethicDataset(Dataset):
         self.data = self.generate_data(**kwargs)
 
     def random_with_n_digits(rng, n):
-        range_start = 10**(n-1)
-        range_end = (10**n)-1
-        return rng.integers(range_start, range_end)
+        return (rng.random(n) < 0.5)
 
     def save_to_file(self, path):
         str_data = [d for d in self]
@@ -45,26 +42,19 @@ class ArithmethicDataset(Dataset):
                 raise ValueError("Unknown data file format")
 
     def generate_data(self,
-                      max_digits: int = 5,
-                      operations: List["str"] = ["add"],
-                      negatives: bool = False,
+                      max_digits: int = 10,
                       N_per_digit: int = 200,
                       split: str = "train",
                       seed: int = 0) -> List:
 
         rng = np.random.default_rng(seed)
         examples = set()
-        for operation in operations:
-            op_fn = eval(operation)
-            for e1 in range(max_digits):
-                for e2 in range(max_digits):
-                    for _ in range(N_per_digit * e1 * e2):
-                        x1 = ArithmethicDataset.random_with_n_digits(rng, e1+1)
-                        x2 = ArithmethicDataset.random_with_n_digits(rng, e2+1)
-                        if not negatives and operation == "sub":
-                            if op_fn(x1, x2) < 0:
-                                x2, x1 = x1, x2
-                        examples.add((x1, x2, operation, op_fn(x1, x2)))
+        for e1 in range(max_digits):
+            for _ in range(N_per_digit * e1):
+                x1 = ParityDataset.random_with_n_digits(rng, e1+1)
+                y = str(np.sum(x1) % 2)
+                x1 = " ".join(x1.astype(int).astype(str))
+                examples.add((x1, y))
 
         examples = list(map(lambda x: Example(*x), examples))
 
@@ -129,40 +119,23 @@ class ArithmethicDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def op_to_str(self, op):
-        if op == "add":
-            return "plus"
-        elif op == "sub":
-            return "minus"
-        elif op == "mul":
-            return "times"
-
-    def digit_to_str(self, digit: int):
-        return ' '.join(list(str(digit)))
-
-    def stringify(self, ex: Example):
-        op_str = self.op_to_str(ex.op)
-        x1_str = self.digit_to_str(ex.x1)
-        x2_str = self.digit_to_str(ex.x2)
-        y_str = self.digit_to_str(ex.y)
-        return Example(x1_str, x2_str, op_str, y_str)
-
     def __getitem__(self, idx):
-        ex = self.stringify(self.data[idx])
-        input = f"{ex.x1} {ex.op} {ex.x2} ="
+        ex = self.data[idx]
+        input = f"{ex.x1} is parity"
         output = f"{ex.y} ."
         return input, output
 
 
 if __name__ == "__main__":
+
+    datasets = [ParityDataset(split=s) for s in ("train", "dev", "test")]
+    pdb.set_trace()
+    assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0,\
+           str(set(datasets[0].data).intersection(datasets[2].data))
+
     tokenizer = AutoTokenizer.from_pretrained('gpt2')
     tokenizer.pad_token = tokenizer.eos_token
-
-    datasets = [ArithmethicDataset(split=s) for s in ("train", "dev", "test")]
-
-    assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0
-
-    collate_fn = ArithmethicDataset.get_collate(tokenizer)
+    collate_fn = ParityDataset.get_collate(tokenizer)
     train_loader = DataLoader(datasets[0],
                               batch_size=2,
                               shuffle=True,
@@ -172,6 +145,4 @@ if __name__ == "__main__":
 
     for data in train_loader:
         pdb.set_trace()
-
-
 
