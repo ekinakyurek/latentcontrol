@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 from absl import app, flags, logging
+import scripts.train_model  # noqa: F401
 
 
 FLAGS = flags.FLAGS
@@ -41,25 +42,31 @@ def assign_to_gpu(gpus, file):
 
 def main(_):
     train_cmd = (
-        "export PYTHONHASHSEED=0;python -u scripts/train_model.py --disable_tqdm "
+        "export PYTHONHASHSEED=0;python -u scripts/train_model.py --disable_tqdm"
+        " --gaccum 5 "
     )
 
-    gpus = list(map(int, FLAGS.gpus_to_use.split(",")))
+    gpus = list(FLAGS.gpus_to_use.split("_"))
     gpus = {id: [] for id in gpus}
     print(f"gpus: {gpus}")
     exp_files = []
 
     for seed in range(1):
-        for train_type in ("PromptTuningCoderLM",):
-            for backbone in ("EleutherAI/gpt-neo-2.7B",):
-                for step_index, steps in enumerate((10, 20)):
+        for train_type in ("PromptTuningLM",):
+            for backbone in ("EleutherAI/gpt-j-6B",):
+                for step_index, steps in enumerate(
+                    (
+                        30,
+                        25,
+                    )
+                ):
 
-                    if train_type == "finetune" and step_index > 0:
+                    if train_type == "FineTuning" and step_index > 0:
                         continue
 
-                    for learning_rate in (0.001, 0.0001):
+                    for learning_rate in (0.001,):
 
-                        if train_type == "finetune":
+                        if train_type == "FineTuning":
                             local_exp_folder = os.path.join(
                                 FLAGS.exp_folder,
                                 f"seed_{seed}",
@@ -86,6 +93,8 @@ def main(_):
                             f"--expdir={local_exp_folder} "
                             f"--logdir={local_exp_folder} "
                             f"--learning_rate={learning_rate} "
+                            "--dataset=CommonSenseQADataset "
+                            # f"--N_per_digit={FLAGS.N_per_digit} "
                         )
 
                         if train_type != "FineTuning":

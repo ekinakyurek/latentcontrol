@@ -1,36 +1,34 @@
 import json
-import logging
-import math
 import pdb
 import pickle
 from typing import Callable, List, Mapping, NamedTuple, Union
-import numpy as np
 import torch
+from absl import logging
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
+from datasets import load_dataset
 
 
 class Example(NamedTuple):
     x1: Union[int, str]
+    x2: Union[int, str]
+    op: Union[Callable, str]
     y: Union[int, str]
 
 
-class ParityDataset(Dataset):
+class CommonSenseQADataset(Dataset):
 
     split_ratios: List = [("train", 0.8), ("dev", 0.1), ("test", 0.1)]
 
-    def __init__(self, split_ratios=None, **kwargs):
+    def __init__(self, split_ratios: List = None, **kwargs):
 
         for (k, v) in kwargs.items():
             self.__setattr__(k, v)
 
-        if split_ratios is not None:
-            self.split_ratios = split_ratios
-
-        self.data = self.generate_data(**kwargs)
-
-    def random_with_n_digits(rng, n: int):
-        return rng.random(n) < 0.5
+        split = kwargs.get("split")
+        if split == "dev" or split == "test":
+            split = "validation"
+        self.data = load_dataset("commonsense_qa", split=split)
 
     def save_to_file(self, path: str):
         str_data = [d for d in self]
@@ -42,44 +40,7 @@ class ParityDataset(Dataset):
             else:
                 raise ValueError("Unknown data file format")
 
-    def generate_data(
-        self,
-        max_digits: int = 10,
-        N_per_digit: int = 200,
-        split: str = "train",
-        seed: int = 0,
-    ) -> List[Example]:
-
-        rng = np.random.default_rng(seed)
-        examples = set()
-        for e1 in range(max_digits):
-            for _ in range(N_per_digit * e1):
-                x1 = ParityDataset.random_with_n_digits(rng, e1 + 1)
-                y = np.sum(x1) % 2
-                y = "even" if y == 0 else "odd"
-                x1 = " ".join(x1.astype(int).astype(str))
-                examples.add((x1, y))
-
-        examples = list(map(lambda x: Example(*x), examples))
-
-        rng = np.random.default_rng(seed)
-        rng.shuffle(examples)
-
-        L = len(examples)
-        data = {}
-        index = 0
-
-        for (i, (sname, ratio)) in enumerate(self.split_ratios):
-            length = math.floor(L * ratio)
-            if i != len(self.split_ratios) - 1:
-                end_index = min(index + length, L)
-            else:
-                end_index = L
-            data[sname] = examples[index:end_index]
-            index = end_index
-
-        return data[split]
-
+    @staticmethod
     def get_collate(tokenizer) -> Callable:
         def collate(data) -> Mapping[str, torch.Tensor]:
             inputs = [d[0] for d in data]
@@ -129,22 +90,28 @@ class ParityDataset(Dataset):
 
     def __getitem__(self, idx):
         ex = self.data[idx]
-        input = f"{ex.x1} is "
-        output = f"parity {ex.y} ."
+        question = ex["question"]
+        choices = ex["choices"]
+        choicez = zip(choices["label"], choices["text"])
+        choice_text = [f"({label.lower()}) {text.lower()}" for label, text in choicez]
+        choice_text = "\n".join(choice_text)
+        input = f"Q: {question}\nAnswer Choices:\n{choice_text}"
+        answer_index = choices["label"].index(ex["answerKey"])
+        answer_text = choices["text"][answer_index]
+        answer_label = f"({ex['answerKey'].lower()})"
+        output = f"{answer_text} {answer_label} ."
         return input, output
 
 
 if __name__ == "__main__":
-
-    datasets = [ParityDataset(split=s) for s in ("train", "dev", "test")]
-    pdb.set_trace()
-    assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0, str(
-        set(datasets[0].data).intersection(datasets[2].data)
-    )
-
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
-    collate_fn = ParityDataset.get_collate(tokenizer)
+
+    datasets = [CommonSenseQADataset(split=s) for s in ("train", "dev", "test")]
+
+    # assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0
+
+    collate_fn = CommonSenseQADataset.get_collate(tokenizer)
     train_loader = DataLoader(
         datasets[0], batch_size=2, shuffle=True, collate_fn=collate_fn
     )

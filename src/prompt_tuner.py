@@ -1,12 +1,15 @@
 import os
-import pdb
 from pathlib import Path
 import torch
 import torch.nn as nn
 from absl import logging
-from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
-from src.postfix_tuner import GPT2PostfixLM, GPTNeoPostfixLM
-from .prompt_coder import GPT2PromptCoderLM, GPTNeoPromptCoderLM
+from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
+from .postfix_tuner import GPT2PostfixLM, GPTJPostfixLM, GPTNeoPostfixLM
+from .prompt_coder import (
+    GPT2PromptCoderLM,
+    GPTJPromptCoderLM,
+    GPTNeoPromptCoderLM,
+)
 
 
 class GPTPromptTuningMixin:
@@ -258,6 +261,11 @@ class GPTNeoPromptTuningLM(GPTPromptTuningMixin, GPTNeoForCausalLM):
         super().__init__(config)
 
 
+class GPTJPromptTuningLM(GPTPromptTuningMixin, GPTJForCausalLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
 class GPT2PromptTuningCoderLM(GPTPromptTuningMixin, GPT2PromptCoderLM):
     def __init__(self, config):
         super().__init__(config)
@@ -268,11 +276,21 @@ class GPTNeoPromptTuningCoderLM(GPTPromptTuningMixin, GPTNeoPromptCoderLM):
         super().__init__(config)
 
 
+class GPTJPromptTuningCoderLM(GPTPromptTuningMixin, GPTJPromptCoderLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
 class GPT2PromptTuningPostfixLM(GPTPromptTuningMixin, GPT2PostfixLM):
     def __init__(self, config):
         super().__init__(config)
 
 
 class GPTNeoPromptTuningPostfixLM(GPTPromptTuningMixin, GPTNeoPostfixLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPTJPromptTuningPostfixLM(GPTPromptTuningMixin, GPTJPostfixLM):
     def __init__(self, config):
         super().__init__(config)

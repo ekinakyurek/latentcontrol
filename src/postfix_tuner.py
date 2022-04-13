@@ -1,10 +1,9 @@
 import os
-import pdb
 from pathlib import Path
 import torch
 import torch.nn as nn
 from absl import logging
-from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
+from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
 
 
 class GPTPostfixMixin:
@@ -260,5 +259,10 @@ class GPT2PostfixLM(GPTPostfixMixin, GPT2LMHeadModel):
 
 
 class GPTNeoPostfixLM(GPTPostfixMixin, GPTNeoForCausalLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPTJPostfixLM(GPTPostfixMixin, GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)

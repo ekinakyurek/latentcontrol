@@ -25,3 +25,4 @@ sacrebleu
 ipywidgets
 tensorboardX
 tensorboard_reducer
+datasets

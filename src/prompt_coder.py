@@ -1,10 +1,9 @@
 import os
-import pdb
 from pathlib import Path
 import torch
 import torch.nn as nn
 from absl import logging
-from transformers import GPT2LMHeadModel, GPTNeoForCausalLM
+from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
 
 
 class GPTPromptCoderMixin:
@@ -282,6 +281,9 @@ class GPTPromptCoderMixin:
 
         lm_logits = self.lm_head(output[0]).contiguous()
 
+        # eos_id = transformer.wte.padding_idx
+        # lm_logits[:, :, eos_id] -= 9999
+
         output.logits = lm_logits
 
         if not hasattr(output, "attention_mask"):
@@ -305,5 +307,10 @@ class GPT2PromptCoderLM(GPTPromptCoderMixin, GPT2LMHeadModel):
 
 
 class GPTNeoPromptCoderLM(GPTPromptCoderMixin, GPTNeoForCausalLM):
+    def __init__(self, config):
+        super().__init__(config)
+
+
+class GPTJPromptCoderLM(GPTPromptCoderMixin, GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)

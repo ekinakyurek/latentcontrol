@@ -20,7 +20,7 @@ def resume(model, optimizer, scheduler, path, loc=None, mark="epoch", load_optim
         if not isinstance(checkpoint, dict):
             checkpoint = {"state_dict": checkpoint.state_dict()}
 
-        model.trainables().load_state_dict(checkpoint["state_dict"])
+        model.load_state_dict(checkpoint["state_dict"], strict=False)
 
         if load_optims and "optimizer" in checkpoint:
             optimizer.load_state_dict(checkpoint["optimizer"])
