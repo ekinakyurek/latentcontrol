@@ -75,7 +75,9 @@ class GPTPromptTuningMixin:
         self.n_tokens = n_tokens
 
         if initialize_from_vocab:
-            init_prompt_value = self.transformer.wte.weight[:n_tokens].clone().detach()
+            init_prompt_value = (
+                self.transformer.wte.weight[:n_tokens].clone().detach()
+            )
         else:
             init_prompt_value = torch.FloatTensor(
                 n_tokens, self.config.n_embd
@@ -92,7 +94,9 @@ class GPTPromptTuningMixin:
             inputs_embeds = inputs_embeds.unsqueeze(0)
 
         # [batch_size, n_tokens, n_embd]
-        learned_embeds = self.soft_prompt.weight.repeat(inputs_embeds.size(0), 1, 1)
+        learned_embeds = self.soft_prompt.weight.repeat(
+            inputs_embeds.size(0), 1, 1
+        )
 
         inputs_embeds = torch.cat([learned_embeds, inputs_embeds], dim=1)
 
@@ -105,7 +109,12 @@ class GPTPromptTuningMixin:
         n_batches = labels.shape[0]
         return torch.cat(
             [
-                torch.full((n_batches, self.n_tokens), ignore_index).to(self.device),
+                torch.full(
+                    (n_batches, self.n_tokens),
+                    ignore_index,
+                    device=labels.device,
+                    dtype=labels.dtype,
+                ),
                 labels,
             ],
             dim=1,
@@ -118,7 +127,15 @@ class GPTPromptTuningMixin:
 
         n_batches = attention_mask.shape[0]
         return torch.cat(
-            [torch.full((n_batches, self.n_tokens), 1).to(self.device), attention_mask],
+            [
+                torch.ones(
+                    n_batches,
+                    self.n_tokens,
+                    device=attention_mask.device,
+                    dtype=attention_mask.dtype,
+                ),
+                attention_mask,
+            ],
             dim=1,
         )
 
@@ -130,7 +147,15 @@ class GPTPromptTuningMixin:
         n_batches = input_attention_mask.shape[0]
 
         return torch.cat(
-            [input_attention_mask, torch.full((n_batches, n_steps), 1).to(self.device)],
+            [
+                input_attention_mask,
+                torch.ones(
+                    n_batches,
+                    n_steps,
+                    device=input_attention_mask.device,
+                    dtype=input_attention_mask.dtype,
+                ),
+            ],
             dim=1,
         )
 
@@ -194,7 +219,6 @@ class GPTPromptTuningMixin:
         **kwargs,
     ):
         if self.disable or past_key_values is not None:
-
             output = super().forward(
                 input_ids=input_ids,
                 inputs_embeds=inputs_embeds,
@@ -203,7 +227,9 @@ class GPTPromptTuningMixin:
                 past_key_values=past_key_values,
                 **kwargs,
             )
-            if not hasattr(output, "attention_mask"):
+            if attention_mask is not None and not hasattr(
+                output, "attention_mask"
+            ):
                 output.attention_mask = attention_mask
 
             return output
@@ -217,7 +243,10 @@ class GPTPromptTuningMixin:
             labels = self._extend_labels(labels).to(self.device)
 
         if attention_mask is not None:
-            if attention_mask.shape[-1] == inputs_embeds.shape[1] - self.n_tokens:
+            if (
+                attention_mask.shape[-1]
+                == inputs_embeds.shape[1] - self.n_tokens
+            ):
                 attention_mask = self._extend_attention_mask_for_prompts(
                     attention_mask
                 ).to(self.device)

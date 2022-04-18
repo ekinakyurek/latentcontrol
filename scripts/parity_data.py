@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
+from src import utils
 
 
 class Example(NamedTuple):
@@ -27,7 +28,7 @@ class ParityDataset(Dataset):
         if split_ratios is not None:
             self.split_ratios = split_ratios
 
-        self.data = self.generate_data(**kwargs)
+        self.data = self.get_data(**kwargs)
 
     def random_with_n_digits(rng, n: int):
         return rng.random(n) < 0.5
@@ -42,9 +43,10 @@ class ParityDataset(Dataset):
             else:
                 raise ValueError("Unknown data file format")
 
-    def generate_data(
+    def generate_expressions(
         self,
         max_digits: int = 10,
+        min_digits: int = 0,
         N_per_digit: int = 200,
         split: str = "train",
         seed: int = 0,
@@ -62,32 +64,64 @@ class ParityDataset(Dataset):
 
         examples = list(map(lambda x: Example(*x), examples))
 
-        rng = np.random.default_rng(seed)
-        rng.shuffle(examples)
+        seed, new_seed = utils.split_seed(seed)
 
+        rng = np.random.default_rng(new_seed)
+        rng.shuffle(examples)
+        return examples
+
+    def get_split(self, examples, split: str = "train") -> List[Example]:
         L = len(examples)
         data = {}
         index = 0
 
-        for (i, (sname, ratio)) in enumerate(self.split_ratios):
+        for (i, (split_name, ratio)) in enumerate(self.split_ratios):
             length = math.floor(L * ratio)
             if i != len(self.split_ratios) - 1:
                 end_index = min(index + length, L)
             else:
                 end_index = L
-            data[sname] = examples[index:end_index]
+            data[split_name] = examples[index:end_index]
             index = end_index
 
         return data[split]
+
+    def get_data(self, split: str = "train", seed=0, **kwargs) -> List[Example]:
+        seed, new_seed = utils.split_seed(seed)
+        examples = self.generate_expressions(seed=new_seed, **kwargs)
+        examples = self.get_split(examples, split=split)
+        if split != "train":
+            kwargs["min_digits"] = kwargs.get("max_digits", 8)
+            kwargs["max_digits"] = kwargs["min_digits"] + 2
+            seed, new_seed = utils.split_seed(seed)
+            hard_examples = self.generate_expressions(seed=new_seed, **kwargs)
+            if split == "dev":
+                pass
+                logging.info("Dev set is easy")
+                # examples += hard_examples[: len(hard_examples) // 2]
+            elif split == "test":
+                examples += hard_examples[len(hard_examples) // 2 :]
+                # pdb.set_trace()
+                # pass
+            else:
+                logging.warn("unknown split")
+        seed, new_seed = utils.split_seed(seed)
+        rng = np.random.default_rng(new_seed)
+        rng.shuffle(examples)
+        return examples
 
     def get_collate(tokenizer) -> Callable:
         def collate(data) -> Mapping[str, torch.Tensor]:
             inputs = [d[0] for d in data]
             targets = [d[1] for d in data]
 
+            tokenizer.padding_side = "left"
+
             inputs = tokenizer.batch_encode_plus(
                 inputs, padding="longest", return_tensors="pt"
             )
+
+            tokenizer.padding_side = "right"
 
             targets = tokenizer.batch_encode_plus(
                 targets, padding="longest", return_tensors="pt"
@@ -130,12 +164,11 @@ class ParityDataset(Dataset):
     def __getitem__(self, idx):
         ex = self.data[idx]
         input = f"{ex.x1} is "
-        output = f"parity {ex.y} ."
+        output = f"{ex.y} parity."
         return input, output
 
 
 if __name__ == "__main__":
-
     datasets = [ParityDataset(split=s) for s in ("train", "dev", "test")]
     pdb.set_trace()
     assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0, str(

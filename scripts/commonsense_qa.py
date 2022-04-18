@@ -46,9 +46,13 @@ class CommonSenseQADataset(Dataset):
             inputs = [d[0] for d in data]
             targets = [d[1] for d in data]
 
+            tokenizer.padding_side = "left"
+
             inputs = tokenizer.batch_encode_plus(
                 inputs, padding="longest", return_tensors="pt"
             )
+
+            tokenizer.padding_side = "right"
 
             targets = tokenizer.batch_encode_plus(
                 targets, padding="longest", return_tensors="pt"
@@ -93,7 +97,9 @@ class CommonSenseQADataset(Dataset):
         question = ex["question"]
         choices = ex["choices"]
         choicez = zip(choices["label"], choices["text"])
-        choice_text = [f"({label.lower()}) {text.lower()}" for label, text in choicez]
+        choice_text = [
+            f"({label.lower()}) {text.lower()}" for label, text in choicez
+        ]
         choice_text = "\n".join(choice_text)
         input = f"Q: {question}\nAnswer Choices:\n{choice_text}"
         answer_index = choices["label"].index(ex["answerKey"])

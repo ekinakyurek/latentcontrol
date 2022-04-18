@@ -1,6 +1,6 @@
 [tool.black]
-line-length = 88
-max-line-length = 88
+line-length = 80
+max-line-length = 80
 target-version = ["py36", "py37", "py38", "py39"]
 enforce_line_length = true
 experimental_string_processing = true

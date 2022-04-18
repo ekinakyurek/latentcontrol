@@ -25,14 +25,18 @@ def main(_):
                         labels.append(True)
                     else:
                         answer_keys = res[-4].split("\n")
-                        answers = [" ".join(key.split(" ")[1:]) for key in answer_keys]
+                        answers = [
+                            " ".join(key.split(" ")[1:]) for key in answer_keys
+                        ]
                         # print(res[-1])
                         gold_answer = " ".join(res[-1].split(" ")[:-1])
                         # print(answers)
                         # print(gold_answer)
                         correct_index = answers.index(gold_answer)
                         del answers[correct_index]
-                        starts_with_any = any([a.startswith(res[-2]) for a in answers])
+                        starts_with_any = any(
+                            [a.startswith(res[-2]) for a in answers]
+                        )
                         if not starts_with_any and res[-1].startswith(res[-2]):
                             labels.append(True)
                         else:

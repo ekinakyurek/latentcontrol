@@ -1,4 +1,3 @@
-import pdb
 from typing import List
 import numpy as np
 
@@ -27,6 +26,7 @@ def char_accuracy(generations: List[str], answers: List[str]):
 
 
 def exact_accuracy(generations: List[str], answers: List[str]):
+
     corrects = 0.0
     total = 0.0
     for gen, ans in zip(generations, answers):

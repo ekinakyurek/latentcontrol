@@ -5,7 +5,9 @@ from transformers.generation_utils import GenerationMixin, ModelOutput
 
 @staticmethod
 def _update_model_kwargs_for_generation(
-    outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
+    outputs: ModelOutput,
+    model_kwargs: Dict[str, Any],
+    is_encoder_decoder: bool = False,
 ) -> Dict[str, Any]:
     if "past_key_values" in outputs:
         model_kwargs["past"] = outputs.past_key_values
@@ -31,7 +33,10 @@ def _update_model_kwargs_for_generation(
             else:
                 attention_mask = model_kwargs["attention_mask"]
             model_kwargs["attention_mask"] = torch.cat(
-                [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))],
+                [
+                    attention_mask,
+                    attention_mask.new_ones((attention_mask.shape[0], 1)),
+                ],
                 dim=-1,
             )
 

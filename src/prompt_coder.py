@@ -75,11 +75,14 @@ class GPTPromptCoderMixin:
         coder = []
         for step in range(self.n_steps + 1):
             init_weight_value = (
-                torch.randn(self.config.n_embd, self.config.n_embd) * random_range
+                torch.randn(self.config.n_embd, self.config.n_embd)
+                * random_range
             )
 
             if initialize_from_vocab:
-                init_bias_value = self.transformer.wte.weight.mean(dim=0, keepdims=True)
+                init_bias_value = self.transformer.wte.weight.mean(
+                    dim=0, keepdims=True
+                )
             else:
                 init_bias_value = torch.FloatTensor(
                     n_steps, self.config.n_embd
@@ -108,7 +111,15 @@ class GPTPromptCoderMixin:
         n_batches = input_attention_mask.shape[0]
 
         return torch.cat(
-            [input_attention_mask, torch.full((n_batches, n_steps), 1).to(self.device)],
+            [
+                input_attention_mask,
+                torch.ones(
+                    n_batches,
+                    n_steps,
+                    device=input_attention_mask.device,
+                    dtype=input_attention_mask.dtype,
+                ),
+            ],
             dim=1,
         )
 
@@ -150,7 +161,10 @@ class GPTPromptCoderMixin:
         if len(input_ids.shape) == 2:
             return input_ids[:, :input_lengths], input_ids[:, input_lengths:]
         else:
-            return input_ids[:, :input_lengths, :], input_ids[:, input_lengths:, :]
+            return (
+                input_ids[:, :input_lengths, :],
+                input_ids[:, input_lengths:, :],
+            )
 
     def forward(
         self,
@@ -174,14 +188,18 @@ class GPTPromptCoderMixin:
                 past_key_values=past_key_values,
                 **kwargs,
             )
-            if attention_mask is not None and not hasattr(output, "attention_mask"):
+            if attention_mask is not None and not hasattr(
+                output, "attention_mask"
+            ):
                 output.attention_mask = attention_mask
 
             return output
 
         if input_lengths is not None:
             if input_ids is not None:
-                input_ids, output_ids = self._divide_inputs(input_ids, input_lengths)
+                input_ids, output_ids = self._divide_inputs(
+                    input_ids, input_lengths
+                )
                 inputs_embeds = self.transformer.wte(input_ids)
                 output_embeds = self.transformer.wte(output_ids)
             elif inputs_embeds is not None:
@@ -190,7 +208,9 @@ class GPTPromptCoderMixin:
                 )
 
             if labels is not None:
-                input_labels, output_labels = self._divide_inputs(labels, input_lengths)
+                input_labels, output_labels = self._divide_inputs(
+                    labels, input_lengths
+                )
 
             if attention_mask is not None:
                 attention_mask, output_attention_mask = self._divide_inputs(
@@ -234,10 +254,14 @@ class GPTPromptCoderMixin:
             latent_embed = output[0][:, -1:, :] @ W + b
             # latent_embed = b.expand(output[0].shape[0], -1).unsqueeze(1)
 
-            attention_mask = self._extend_attention_mask(attention_mask, n_steps=1)
+            attention_mask = self._extend_attention_mask(
+                attention_mask, n_steps=1
+            )
 
             if position_ids is not None:
-                position_ids = position_ids.max(dim=-1, keepdims=True).values + 1
+                position_ids = (
+                    position_ids.max(dim=-1, keepdims=True).values + 1
+                )
 
                 input_position_ids = torch.cat(
                     [input_position_ids, position_ids], dim=-1
@@ -258,7 +282,9 @@ class GPTPromptCoderMixin:
 
         attention_mask = self._extend_attention_mask(attention_mask, n_steps=1)
 
-        attention_mask = torch.cat([attention_mask, output_attention_mask], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, output_attention_mask], dim=1
+        )
 
         output_embeds = torch.cat([latent_embed, output_embeds], dim=1)
 
@@ -293,7 +319,8 @@ class GPTPromptCoderMixin:
             shift_logits = lm_logits[..., :-1, :].contiguous()
             output_labels = output_labels.contiguous()
             loss = self.loss_fn(
-                shift_logits.view(-1, shift_logits.size(-1)), output_labels.view(-1)
+                shift_logits.view(-1, shift_logits.size(-1)),
+                output_labels.view(-1),
             )
 
             output.loss = loss

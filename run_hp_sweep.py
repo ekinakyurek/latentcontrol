@@ -7,22 +7,11 @@ import scripts.train_model  # noqa: F401
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("exp_folder", default=None, help="main experiment directory")
+flags.DEFINE_string(
+    "exp_folder", default=None, help="main experiment directory"
+)
 
 flags.DEFINE_string("gpus_to_use", default=None, help="coma seperated gpu ids")
-
-
-def wait_for_files(files):
-    logging.info("waiting for files")
-    logging.info(repr(files))
-    while True:
-        all_files = True
-        for file in files:
-            if not os.path.isfile(file):
-                all_files = False
-        if all_files:
-            break
-        time.sleep(60)
 
 
 def assign_to_gpu(gpus, file):
@@ -42,8 +31,10 @@ def assign_to_gpu(gpus, file):
 
 def main(_):
     train_cmd = (
-        "export PYTHONHASHSEED=0;python -u scripts/train_model.py --disable_tqdm"
-        " --gaccum 5 "
+        "export PYTHONHASHSEED=0;python -u scripts/train_model.py "
+        "--disable_tqdm "
+        f"--max_generation_len {FLAGS.max_generation_len} "
+        f"--gaccum {FLAGS.gaccum} "
     )
 
     gpus = list(FLAGS.gpus_to_use.split("_"))
@@ -51,16 +42,10 @@ def main(_):
     print(f"gpus: {gpus}")
     exp_files = []
 
-    for seed in range(1):
+    for seed in range(0, 1):
         for train_type in ("PromptTuningLM",):
             for backbone in ("EleutherAI/gpt-j-6B",):
-                for step_index, steps in enumerate(
-                    (
-                        30,
-                        25,
-                    )
-                ):
-
+                for step_index, steps in enumerate((60,)):
                     if train_type == "FineTuning" and step_index > 0:
                         continue
 
@@ -93,8 +78,8 @@ def main(_):
                             f"--expdir={local_exp_folder} "
                             f"--logdir={local_exp_folder} "
                             f"--learning_rate={learning_rate} "
-                            "--dataset=CommonSenseQADataset "
-                            # f"--N_per_digit={FLAGS.N_per_digit} "
+                            f"--dataset={FLAGS.dataset} "
+                            f"--N_per_digit={FLAGS.N_per_digit} "
                         )
 
                         if train_type != "FineTuning":

@@ -74,11 +74,13 @@ class GPTPostfixMixin:
         self.n_steps = n_steps
 
         if initialize_from_vocab:
-            init_prompt_value = self.transformer.wte.weight[:n_steps].clone().detach()
-        else:
-            init_prompt_value = torch.FloatTensor(n_steps, self.config.n_embd).uniform_(
-                -random_range, random_range
+            init_prompt_value = (
+                self.transformer.wte.weight[:n_steps].clone().detach()
             )
+        else:
+            init_prompt_value = torch.FloatTensor(
+                n_steps, self.config.n_embd
+            ).uniform_(-random_range, random_range)
 
         self.coder = nn.Embedding(n_steps, self.config.n_embd)
         # Initialize weight
@@ -99,7 +101,15 @@ class GPTPostfixMixin:
         n_batches = input_attention_mask.shape[0]
 
         return torch.cat(
-            [input_attention_mask, torch.full((n_batches, n_steps), 1).to(self.device)],
+            [
+                input_attention_mask,
+                torch.ones(
+                    n_batches,
+                    n_steps,
+                    device=self.device,
+                    dtype=input_attention_mask.dtype,
+                ),
+            ],
             dim=1,
         )
 
@@ -112,7 +122,12 @@ class GPTPostfixMixin:
         return torch.cat(
             [
                 attention_mask,
-                torch.full((n_batches, self.n_steps), 1).to(self.device),
+                torch.ones(
+                    n_batches,
+                    self.n_steps,
+                    device=self.device,
+                    dtype=attention_mask.dtype,
+                ),
             ],
             dim=1,
         )
@@ -157,10 +172,15 @@ class GPTPostfixMixin:
         if len(input_ids.shape) == 2:
             return input_ids[:, :input_lengths], input_ids[:, input_lengths:]
         else:
-            return input_ids[:, :input_lengths, :], input_ids[:, input_lengths:, :]
+            return (
+                input_ids[:, :input_lengths, :],
+                input_ids[:, input_lengths:, :],
+            )
 
     def _add_prompt_tokens(self, input_ids, output_ids, value=-100):
-        prompt_ids = input_ids.new_ones((input_ids.shape[0], self.n_steps)) * value
+        prompt_ids = (
+            input_ids.new_ones((input_ids.shape[0], self.n_steps)) * value
+        )
         return torch.cat([input_ids, prompt_ids, output_ids], dim=1)
 
     def _add_prompt_embeds(self, input_embeds, output_embeds):
@@ -188,14 +208,18 @@ class GPTPostfixMixin:
                 **kwargs,
             )
 
-            if attention_mask is not None and not hasattr(output, "attention_mask"):
+            if attention_mask is not None and not hasattr(
+                output, "attention_mask"
+            ):
                 output.attention_mask = attention_mask
 
             return output
 
         if input_lengths is not None:
             if input_ids is not None:
-                input_ids, output_ids = self._divide_inputs(input_ids, input_lengths)
+                input_ids, output_ids = self._divide_inputs(
+                    input_ids, input_lengths
+                )
                 inputs_embeds = self.transformer.wte(input_ids)
                 output_embeds = self.transformer.wte(output_ids)
             elif inputs_embeds is not None:
@@ -203,12 +227,18 @@ class GPTPostfixMixin:
                     inputs_embeds, input_lengths
                 )
 
-            inputs_embeds = self._add_prompt_embeds(inputs_embeds, output_embeds)
+            inputs_embeds = self._add_prompt_embeds(
+                inputs_embeds, output_embeds
+            )
             input_ids = None
 
             if labels is not None:
-                input_labels, output_labels = self._divide_inputs(labels, input_lengths)
-                labels = self._add_prompt_tokens(input_labels, output_labels, -100)
+                input_labels, output_labels = self._divide_inputs(
+                    labels, input_lengths
+                )
+                labels = self._add_prompt_tokens(
+                    input_labels, output_labels, -100
+                )
 
             if attention_mask is not None:
                 attention_mask, output_attention_mask = self._divide_inputs(

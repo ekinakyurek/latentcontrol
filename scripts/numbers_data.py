@@ -9,6 +9,20 @@ import torch
 from absl import logging
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
+from src import utils
+
+
+def _op_to_str(op: str) -> str:
+    if op == "add":
+        return "plus"
+    elif op == "sub":
+        return "minus"
+    elif op == "mul":
+        return "times"
+
+
+def _digit_to_str(digit: int) -> str:
+    return " ".join(list(str(digit)))
 
 
 class Example(NamedTuple):
@@ -16,6 +30,15 @@ class Example(NamedTuple):
     x2: Union[int, str]
     op: Union[Callable, str]
     y: Union[int, str]
+
+    def __eq__(self, other):
+        if isinstance(other, Example):
+            return str(self) == str(other)
+        return False
+
+    def __str__(self):
+        op_str = _op_to_str(self.op)
+        return f"{self.x1} {op_str} {self.x2} = {self.y}"
 
 
 class ArithmethicDataset(Dataset):
@@ -49,11 +72,11 @@ class ArithmethicDataset(Dataset):
 
     def generate_expressions(
         self,
-        max_digits: int = 5,
+        max_digits: int = 8,
         min_digits: int = 0,
         operations: List["str"] = ["add"],
         negatives: bool = False,
-        N_per_digit: int = 200,
+        N_per_digit: int = 90,
         seed=0,
     ) -> List[Example]:
         rng = np.random.default_rng(seed)
@@ -61,17 +84,17 @@ class ArithmethicDataset(Dataset):
         for operation in operations:
             op_fn = eval(operation)
             for e1 in range(min_digits, max_digits):
-                for e2 in range(min_digits, max_digits):
-                    for _ in range(N_per_digit * e1 * e2):
-                        x1 = ArithmethicDataset.random_with_n_digits(rng, e1 + 1)
-                        x2 = ArithmethicDataset.random_with_n_digits(rng, e2 + 1)
-                        if not negatives and operation == "sub":
-                            if op_fn(x1, x2) < 0:
-                                x2, x1 = x1, x2
-                        examples.add((x1, x2, operation, op_fn(x1, x2)))
+                for _ in range(N_per_digit * e1 * e1):
+                    x1 = ArithmethicDataset.random_with_n_digits(rng, e1 + 1)
+                    x2 = ArithmethicDataset.random_with_n_digits(rng, e1 + 1)
+                    if not negatives and operation == "sub":
+                        if op_fn(x1, x2) < 0:
+                            x2, x1 = x1, x2
+                    examples.add((x1, x2, operation, op_fn(x1, x2)))
 
         examples = list(map(lambda x: Example(*x), examples))
-        rng = np.random.default_rng(seed)
+        seed, new_seed = utils.split_seed(seed)
+        rng = np.random.default_rng(new_seed)
         rng.shuffle(examples)
         return examples
 
@@ -83,61 +106,80 @@ class ArithmethicDataset(Dataset):
         L = len(examples)
         data = {}
         index = 0
-        for (i, (sname, ratio)) in enumerate(self.split_ratios):
+        for (i, (split_name, ratio)) in enumerate(self.split_ratios):
             length = math.floor(L * ratio)
             if i != len(self.split_ratios) - 1:
                 end_index = min(index + length, L)
             else:
                 end_index = L
-            data[sname] = examples[index:end_index]
+            data[split_name] = examples[index:end_index]
             index = end_index
 
         return data[split]
 
-    def get_data(self, split: str = "train", **kwargs) -> List[Example]:
-        examples = self.generate_expressions(**kwargs)
+    def get_data(self, split: str = "train", seed=0, **kwargs) -> List[Example]:
+        seed, new_seed = utils.split_seed(seed)
+        examples = self.generate_expressions(seed=new_seed, **kwargs)
         examples = self.get_split(examples, split=split)
         if split != "train":
-            kwargs["min_digits"] = kwargs.get("max_digits", 5)
+            kwargs["min_digits"] = kwargs.get("max_digits", 8)
             kwargs["max_digits"] = kwargs["min_digits"] + 2
-            hard_examples = self.generate_expressions(**kwargs)
+            seed, new_seed = utils.split_seed(seed)
+            hard_examples = self.generate_expressions(seed=new_seed, **kwargs)
             if split == "dev":
-                examples += hard_examples[: len(hard_examples) // 2]
+                pass
+                logging.info("Dev set is easy")
+                # examples += hard_examples[: len(hard_examples) // 2]
             elif split == "test":
                 examples += hard_examples[len(hard_examples) // 2 :]
+                # pdb.set_trace()
+                # pass
             else:
                 logging.warn("unknown split")
-        rng = np.random.default_rng(kwargs.get("seed", 0))
+        seed, new_seed = utils.split_seed(seed)
+        rng = np.random.default_rng(new_seed)
         rng.shuffle(examples)
         return examples
 
     @staticmethod
-    def get_collate(tokenizer) -> Callable:
+    def get_collate(tokenizer: AutoTokenizer, interleave=True) -> Callable:
         def collate(data) -> Mapping[str, torch.Tensor]:
-            inputs = [d[0] for d in data]
-            targets = [d[1] for d in data]
+            if interleave:
+                inputs = [d[0] for d in data]
+                targets = [d[1] for d in data]
 
-            inputs = tokenizer.batch_encode_plus(
-                inputs, padding="longest", return_tensors="pt"
-            )
+                tokenizer.padding_side = "left"
 
-            targets = tokenizer.batch_encode_plus(
-                targets, padding="longest", return_tensors="pt"
-            )
+                inputs = tokenizer.batch_encode_plus(
+                    inputs,
+                    padding="longest",
+                    return_tensors="pt",
+                )
 
-            input_ids = torch.cat([inputs.input_ids, targets.input_ids], dim=1)
+                tokenizer.padding_side = "right"
 
-            labels = torch.cat(
-                [
-                    torch.zeros_like(inputs.input_ids) + tokenizer.pad_token_id,
-                    targets.input_ids,
-                ],
-                dim=1,
-            )
+                targets = tokenizer.batch_encode_plus(
+                    targets, padding="longest", return_tensors="pt"
+                )
 
-            attention_mask = torch.cat(
-                [inputs.attention_mask, targets.attention_mask], dim=1
-            )
+                input_ids = torch.cat(
+                    [inputs.input_ids, targets.input_ids], dim=1
+                )
+
+                labels = torch.cat(
+                    [
+                        torch.zeros_like(inputs.input_ids)
+                        + tokenizer.pad_token_id,
+                        targets.input_ids,
+                    ],
+                    dim=1,
+                )
+
+                attention_mask = torch.cat(
+                    [inputs.attention_mask, targets.attention_mask], dim=1
+                )
+            else:
+                raise ValueError("Normal batching is not implemente yet!")
 
             labels = labels.masked_fill(
                 labels == tokenizer.pad_token_id, -100
@@ -159,22 +201,11 @@ class ArithmethicDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def op_to_str(self, op: str) -> str:
-        if op == "add":
-            return "plus"
-        elif op == "sub":
-            return "minus"
-        elif op == "mul":
-            return "times"
-
-    def digit_to_str(self, digit: int) -> str:
-        return " ".join(list(str(digit)))
-
     def stringify(self, ex: Example) -> Example:
-        op_str = self.op_to_str(ex.op)
-        x1_str = self.digit_to_str(ex.x1)
-        x2_str = self.digit_to_str(ex.x2)
-        y_str = self.digit_to_str(ex.y)
+        op_str = _op_to_str(ex.op)
+        x1_str = _digit_to_str(ex.x1)
+        x2_str = _digit_to_str(ex.x2)
+        y_str = _digit_to_str(ex.y)
         return Example(x1_str, x2_str, op_str, y_str)
 
     def __getitem__(self, idx):

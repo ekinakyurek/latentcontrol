@@ -1,4 +1,6 @@
 import os
+from functools import partial
+from typing import Optional
 from absl import app, flags, logging
 from accelerate import Accelerator
 from tensorboardX import global_writer
@@ -43,7 +45,7 @@ flags.DEFINE_integer("num_train_epochs", 15, help="Number of training epochs")
 
 flags.DEFINE_integer("batch_size", 8, help="Batch size")
 
-flags.DEFINE_integer("max_train_steps", 10, help="Number of training epochs")
+flags.DEFINE_integer("max_generation_len", 42, help="Number of training epochs")
 
 flags.DEFINE_integer(
     "num_warmup_steps", 0, help="Number of warmup steps for lr scheduler"
@@ -53,17 +55,25 @@ flags.DEFINE_integer("n_prompt_tokens", None, help="Number of prompt_tokens")
 
 flags.DEFINE_integer("n_coder_steps", None, help="Number of coder steps")
 
-flags.DEFINE_boolean("init_from_vocab", True, help="Init prompt tokens from vocab")
+flags.DEFINE_boolean(
+    "init_from_vocab", True, help="Init prompt tokens from vocab"
+)
 
 flags.DEFINE_float("learning_rate", 0.001, help="Learning rate")
 
-flags.DEFINE_float("weight_decay", 0.001, help="weight decay parameter for optimizer")
+flags.DEFINE_float(
+    "weight_decay", 0.001, help="weight decay parameter for optimizer"
+)
 
-flags.DEFINE_string("lr_scheduler_type", "linear", help="Learning rate scheduler type")
+flags.DEFINE_string(
+    "lr_scheduler_type", "linear", help="Learning rate scheduler type"
+)
 
 flags.DEFINE_string("model", "gpt-2", help="gpt-2")
 
-flags.DEFINE_string("model_type", "PromptTuningCoderLM", help="Which gadget to use")
+flags.DEFINE_string(
+    "model_type", "PromptTuningCoderLM", help="Which gadget to use"
+)
 
 flags.DEFINE_string("dataset", "ArithmethicDataset", help="dataset to train on")
 
@@ -83,9 +93,13 @@ flags.DEFINE_integer("gaccum", 1, help="gradient accumulation")
 
 flags.DEFINE_integer("padding_idx", None, help="Padding idx")
 
-flags.DEFINE_integer("evaluate_every", 100, help="Padding idx")
+flags.DEFINE_integer("evaluate_every", 100, help="Evaluate every step")
+
+flags.DEFINE_integer("save_every", 5, help="Save every epoch")
 
 flags.DEFINE_boolean("disable_tqdm", False, help="Disable tqdm")
+
+flags.DEFINE_boolean("evaluate", False, help="Only evaluates the model")
 
 flags.DEFINE_boolean("parallelize", False, help="Model parallelize")
 
@@ -105,39 +119,50 @@ def _get_info_str(FLAGS):
     return infostr
 
 
-def get_model(FLAGS):
-    if FLAGS.model_type == "FineTuning":
-        model_type = "PromptCoderLM"
-    else:
-        model_type = FLAGS.model_type
+def get_model(
+    model_type: str,
+    model: str,
+    init_from_vocab: bool = True,
+    padding_idx: Optional[int] = None,
+    n_prompt_tokens: Optional[int] = None,
+    n_coder_steps: Optional[int] = None,
+    lr_scheduler_type: str = "linear",
+    learning_rate: float = 0.001,
+    num_warmup_steps: int = 0,
+    weight_decay: float = 0.001,
+    num_train_epochs: int = 15,
+):
 
-    if "gpt2" in FLAGS.model:
+    if model_type == "FineTuning":
+        model_type = "PromptCoderLM"
+
+    if "gpt2" in model:
         ModelType = eval("GPT2" + model_type)
-    elif "Neo" in FLAGS.model:
+    elif "Neo" in model:
         ModelType = eval("GPTNeo" + model_type)
-    elif "j" in FLAGS.model:
+    elif "j" in model:
         ModelType = eval("GPTJ" + model_type)
     else:
         raise ValueError(f"Unsupported model {ModelType}")
 
     kwargs = {
-        "initialize_from_vocab": FLAGS.init_from_vocab,
-        "padding_idx": FLAGS.padding_idx,
+        "initialize_from_vocab": init_from_vocab,
+        "padding_idx": padding_idx,
     }
 
     params_to_optimize = []
-    if "Prompt" in FLAGS.model_type:
+    if "Prompt" in model_type:
         params_to_optimize.append("soft_prompt")
-        kwargs["n_tokens"] = FLAGS.n_prompt_tokens
+        kwargs["n_tokens"] = n_prompt_tokens
 
-    if "Postfix" in FLAGS.model_type or "Coder" in FLAGS.model_type:
+    if "Postfix" in model_type or "Coder" in model_type:
         params_to_optimize.append("coder")
-        kwargs["n_steps"] = FLAGS.n_coder_steps
+        kwargs["n_steps"] = n_coder_steps
 
     if len(params_to_optimize) == 0:
         params_to_optimize.append("")
 
-    model = ModelType.from_pretrained(FLAGS.model, **kwargs)
+    model = ModelType.from_pretrained(model, **kwargs)
 
     logging.info(str(ModelType))
 
@@ -148,7 +173,7 @@ def get_model(FLAGS):
                 for name, p in model.named_parameters()
                 if any((s in name for s in params_to_optimize))
             ],
-            "weight_decay": FLAGS.weight_decay,
+            "weight_decay": weight_decay,
             "names": [
                 name
                 for name, p in model.named_parameters()
@@ -156,38 +181,40 @@ def get_model(FLAGS):
             ],
         }
     ]
-    logging.info(f"Params to optimize: {optimizer_grouped_parameters[0]['names']}")
+    logging.info(
+        f"Params to optimize: {optimizer_grouped_parameters[0]['names']}"
+    )
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=FLAGS.learning_rate)
+    optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 
     lr_scheduler = get_scheduler(
-        name=FLAGS.lr_scheduler_type,
+        name=lr_scheduler_type,
         optimizer=optimizer,
-        num_warmup_steps=FLAGS.num_warmup_steps,
-        num_training_steps=FLAGS.max_train_steps,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_train_epochs,
     )
 
     return model, optimizer, lr_scheduler
 
 
-def get_data(FLAGS):
-    DataType = eval(FLAGS.dataset)
+def get_data(dataset="ArithmethicDataset", seed=0, N_per_digit=90):
+    DataType = eval(dataset)
     datasets = [
-        DataType(split=s, seed=FLAGS.seed, N_per_digit=FLAGS.N_per_digit)
+        DataType(split=s, seed=seed, N_per_digit=N_per_digit)
         for s in ("train", "dev", "test")
     ]
     return DataType, datasets
 
 
-def get_tokenizer(FLAGS):
-    tokenizer = AutoTokenizer.from_pretrained(FLAGS.model)
-    if FLAGS.padding_idx is None:
+def get_tokenizer(model: str, padding_idx: Optional[int] = None):
+    tokenizer = AutoTokenizer.from_pretrained(model)
+    if padding_idx is None:
         tokenizer.pad_token = tokenizer.eos_token
-        FLAGS.padding_idx = tokenizer.pad_token_id
+        padding_idx = tokenizer.pad_token_id
     else:
         raise ValueError("Extra pad token id is not implemented")
 
-    return tokenizer
+    return tokenizer, padding_idx
 
 
 def initializer_logger(FLAGS):
@@ -197,13 +224,17 @@ def initializer_logger(FLAGS):
     )
 
 
-def get_batch_loader(DataType, tokenizer, dataset):
+def get_batch_loader(DataType, tokenizer, dataset, seed=None):
     collate_fn = DataType.get_collate(tokenizer)
+    worker_init_fn = partial(utils.worker_init_fn, seed=seed)
+    # if dataset.split == 'test':
+    #     dataset.data = [d for d in dataset.data if len(str(d.x1)) < 9]
     loader = DataLoader(
         dataset,
         batch_size=FLAGS.batch_size,
         shuffle=(dataset.split == "train"),
         collate_fn=collate_fn,
+        worker_init_fn=worker_init_fn,
     )
     return loader
 
@@ -224,7 +255,9 @@ def train_eval_loop(model, tokenizer, dataloader, tag="val", iter=0):
             attention_mask=data["attention_mask"],
             labels=data["labels"],
         )
-        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(
+            model, GPTPostfixMixin
+        ):
             input["input_lengths"] = data["input_lengths"][0]
         output = model(**input)
         loss = output.loss
@@ -251,7 +284,9 @@ def train_loop(
             labels=data["labels"],
         )
 
-        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(
+            model, GPTPostfixMixin
+        ):
             input["input_lengths"] = data["input_lengths"][0]
 
         output = model(**input)
@@ -268,7 +303,12 @@ def train_loop(
 
         if (step + 1) % FLAGS.evaluate_every == 0:
             generation_loop(
-                model, tokenizer, dataloader, kgen=10, tag="train", iter=iter
+                model,
+                tokenizer,
+                dataloader,
+                n_eval_batches=10,
+                tag="train",
+                iter=iter,
             )
 
     lr_scheduler.step()
@@ -281,7 +321,7 @@ def generation_loop(
     model,
     tokenizer,
     dataloader,
-    kgen=10,
+    n_eval_batches=10,
     disable=False,
     iter=0,
     tag="val",
@@ -301,15 +341,17 @@ def generation_loop(
     string_answers = []
     string_inputs = []
 
-    for (t, data) in enumerate(dataloader):
+    for (t, data) in enumerate(tqdm(dataloader, disable=FLAGS.disable_tqdm)):
         limit = data["input_lengths"][0]
         input = dict(
             input_ids=data["input_ids"][:, :limit],
             attention_mask=data["attention_mask"][:, :limit],
-            max_length=128,
+            max_length=FLAGS.max_generation_len,
         )
 
-        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(
+            model, GPTPostfixMixin
+        ):
             input["input_lengths"] = limit
 
         output = model.generate(**input)
@@ -327,14 +369,20 @@ def generation_loop(
         for i in range(len(generations)):
             inp = inputs[i]
             ans = answers[i].split(".")[0].strip()
-            gen = generations[i].replace(inp, "").split(".")[0].strip()
+            gen = (
+                generations[i]
+                .replace(inp, "")
+                .split(".")[0]
+                .strip()
+                .replace("\n", "")
+            )
             if log:
                 logging.info(f"Q:{inp}\tP: {gen}\tA: {ans}")
             string_outputs.append(gen)
             string_answers.append(ans)
             string_inputs.append(inp)
 
-        if t == kgen:
+        if t == n_eval_batches:
             break
 
     accuracy = metrics.char_accuracy(string_outputs, string_answers)
@@ -356,7 +404,14 @@ def generation_loop(
 
 
 def read_off_loop(
-    model, tokenizer, dataloader, kgen=10, disable=False, iter=0, tag="val", **kwargs
+    model,
+    tokenizer,
+    dataloader,
+    n_eval_batches=10,
+    disable=False,
+    iter=0,
+    tag="val",
+    **kwargs,
 ):
 
     writer = GlobalSummaryWriter.getSummaryWriter()
@@ -370,18 +425,22 @@ def read_off_loop(
     string_outputs = []
     string_answers = []
     string_inputs = []
+    string_postfixes = []
+    string_prefix = None
 
     for (t, data) in enumerate(dataloader):
         limit = data["input_lengths"][0]
         input = dict(
             input_ids=data["input_ids"][:, :limit],
             attention_mask=data["attention_mask"][:, :limit],
-            max_length=32,
+            max_length=FLAGS.max_generation_len,
             return_dict_in_generate=True,
             output_hidden_states=True,
         )
 
-        if isinstance(model, GPTPromptCoderMixin) or isinstance(model, GPTPostfixMixin):
+        if isinstance(model, GPTPromptCoderMixin) or isinstance(
+            model, GPTPostfixMixin
+        ):
             input["input_lengths"] = limit
 
         output = model.generate(**input)
@@ -403,7 +462,9 @@ def read_off_loop(
         if hasattr(model, "n_steps") and model.n_steps is not None:
             postfix_len = model.n_steps
             postfix_states = output.hidden_states[0][-1][:, -postfix_len:, :]
-            postfix_states = postfix_states.to(device=model.lm_head.weight.device)
+            postfix_states = postfix_states.to(
+                device=model.lm_head.weight.device
+            )
             postfix_logits = model.lm_head(postfix_states).contiguous()
             postfix_ids = postfix_logits.argmax(dim=-1)
             postfix_generations = tokenizer.batch_decode(
@@ -412,7 +473,9 @@ def read_off_loop(
                 clean_up_tokenization_spaces=False,
             )
 
-        generations = tokenizer.batch_decode(output.sequences, skip_special_tokens=True)
+        generations = tokenizer.batch_decode(
+            output.sequences, skip_special_tokens=True
+        )
 
         answers = tokenizer.batch_decode(
             data["input_ids"][:, limit:], skip_special_tokens=True
@@ -434,11 +497,16 @@ def read_off_loop(
                 postfix = postfix_generations[i].strip()
                 logging.info(f"postfix:{postfix}")
 
+            string_postfixes.append(postfix)
             string_outputs.append(gen)
             string_answers.append(ans)
             string_inputs.append(inp)
+            if string_prefix is None:
+                string_prefix = prefix
+            else:
+                assert prefix == string_prefix, "prefixes do not match"
 
-        if t == kgen:
+        if t == n_eval_batches:
             break
 
     accuracy = metrics.char_accuracy(string_outputs, string_answers)
@@ -456,6 +524,8 @@ def read_off_loop(
         string_inputs,
         string_outputs,
         string_answers,
+        string_postfixes,
+        string_prefix,
     )
 
 
@@ -467,86 +537,163 @@ def train(_):
     writer.add_text("FLAGS", infostr, 0)
     # assert not (FLAGS.n_prompt_tokens and FLAGS.n_coder_steps)
 
-    utils.set_seed(FLAGS.seed)
+    seed = utils.set_seed(FLAGS.seed)
+    seed, new_seed = utils.split_seed(seed)
 
-    DataType, datasets = get_data(FLAGS)
+    DataType, datasets = get_data(
+        seed=new_seed, dataset=FLAGS.dataset, N_per_digit=FLAGS.N_per_digit
+    )
+
     logging.info(f"{[len(d) for d in datasets]}")
-    tokenizer = get_tokenizer(FLAGS)
-    model, optimizer, lr_scheduler = get_model(FLAGS)
+    checkpoint_dir = get_checkpoint_folder(FLAGS)
+
+    if DataType == ArithmethicDataset:
+        train_file_path = os.path.join(checkpoint_dir, "train.txt")
+        logging.info(f"Writing training dataset to {train_file_path}")
+        utils.write_training_data_to_file(train_file_path, datasets[0].data)
+
+    tokenizer, padding_idx = get_tokenizer(
+        model=FLAGS.model, padding_idx=FLAGS.padding_idx
+    )
+    FLAGS.padding_idx = padding_idx
+
+    model, optimizer, lr_scheduler = get_model(
+        model_type=FLAGS.model_type,
+        model=FLAGS.model,
+        init_from_vocab=FLAGS.init_from_vocab,
+        n_prompt_tokens=FLAGS.n_prompt_tokens,
+        n_coder_steps=FLAGS.n_coder_steps,
+        learning_rate=FLAGS.learning_rate,
+        num_warmup_steps=FLAGS.num_warmup_steps,
+        weight_decay=FLAGS.weight_decay,
+        num_train_epochs=FLAGS.num_train_epochs,
+        padding_idx=FLAGS.padding_idx,
+    )
+
+    model.config.pad_token_id = padding_idx
 
     if FLAGS.resume_from_checkpoint is not None:
         model, optimizer, lr_scheduler = utils.resume(
             model, optimizer, lr_scheduler, FLAGS.resume_from_checkpoint
         )
 
-    dataloaders = [get_batch_loader(DataType, tokenizer, d) for d in datasets]
+    seed, new_seed = utils.split_seed(seed)
+    dataloaders = [
+        get_batch_loader(DataType, tokenizer, d, seed=new_seed)
+        for d in datasets
+    ]
 
     accelerator = Accelerator()
     device = accelerator.device
     logging.info(f"Using device {device}")
 
-    model, optimizer, *dataloaders = accelerator.prepare(model, optimizer, *dataloaders)
+    model, optimizer, *dataloaders = accelerator.prepare(
+        model, optimizer, *dataloaders
+    )
 
     model.parallelize()
 
-    for epoch in range(FLAGS.num_train_epochs):
-        # Eval Loop
-        model.eval()
-        logging.info(f"Starting epoch {epoch}, running generations for validation: ")
-        generation_loop(model, tokenizer, dataloaders[1], kgen=10, iter=epoch)
-        logging.info(
-            "Generation loop for validation set is completed\n"
-            "Running generations for trianing set"
-        )
-        generation_loop(
-            model, tokenizer, dataloaders[0], kgen=10, tag="train", iter=epoch
-        )
-        logging.info(
-            "Generation loop for training set is completed\n"
-            "Runing evaluation loop for validation set"
-        )
-        train_eval_loop(model, tokenizer, dataloaders[1], iter=epoch)
-        # read_off_loop(model, tokenizer, dataloaders[1], kgen=10, iter=epoch)
-        logging.info(f"Epoch {epoch} training starts")
-        # Train Loop
-        model.train()
-        # model.gradient_checkpointing_enable()
-        train_loop(
-            model,
-            tokenizer,
-            optimizer,
-            lr_scheduler,
-            accelerator,
-            dataloaders[0],
-            iter=epoch,
-        )
+    if not FLAGS.evaluate:
+
+        for epoch in range(FLAGS.num_train_epochs):
+            # Eval Loop
+            model.eval()
+            logging.info(
+                f"Starting epoch {epoch}, running generations for validation: "
+            )
+            generation_loop(
+                model, tokenizer, dataloaders[1], n_eval_batches=10, iter=epoch
+            )
+            logging.info(
+                "Generation loop for validation set is completed\n"
+                "Running generations for training set"
+            )
+            generation_loop(
+                model,
+                tokenizer,
+                dataloaders[0],
+                n_eval_batches=10,
+                tag="train",
+                iter=epoch,
+            )
+            logging.info(
+                "Generation loop for training set is completed\n"
+                "Runing evaluation loop for validation set"
+            )
+            train_eval_loop(model, tokenizer, dataloaders[1], iter=epoch)
+            logging.info(f"Epoch {epoch} training starts")
+
+            if (epoch + 1) % FLAGS.save_every == 0:
+                utils.save_model(
+                    model,
+                    optimizer,
+                    lr_scheduler,
+                    checkpoint_dir,
+                    iter=epoch,
+                    main_seed_state=seed,
+                )
+
+            # Train Loop
+            model.train()
+            # model.gradient_checkpointing_enable()
+            train_loop(
+                model,
+                tokenizer,
+                optimizer,
+                lr_scheduler,
+                accelerator,
+                dataloaders[0],
+                iter=epoch,
+            )
         # model.gradient_checkpointing_disable()
 
+        utils.save_model(
+            model,
+            optimizer,
+            lr_scheduler,
+            checkpoint_dir,
+            iter=FLAGS.num_train_epochs,
+            main_seed_state=seed,
+        )
+
+    model.eval()
     logging.info("Running final evals for test set")
-    checkpoint_dir = get_checkpoint_folder(FLAGS)
     logging.info(f"Checkpoint dir: {checkpoint_dir}")
 
-    inputs, outputs, answers = generation_loop(
-        model,
-        tokenizer,
-        dataloaders[-1],
-        kgen=len(dataloaders[-1]),
-        iter=FLAGS.num_train_epochs,
-        log=False,
-        tag="test",
-    )
+    for split, loader in zip(["val", "test"], dataloaders[1:3]):
 
-    utils.save_evals(
-        inputs, outputs, answers, checkpoint_dir, iter=FLAGS.num_train_epochs
-    )
+        # inputs, outputs, answers, postfixes, prefix = read_off_loop(
+        #     model,
+        #     tokenizer,
+        #     loader,
+        #     n_eval_batches=len(loader),
+        #     iter=FLAGS.num_train_epochs,
+        #     log=True,
+        #     tag=split,
+        # )
 
-    train_eval_loop(
-        model, tokenizer, dataloaders[-1], iter=FLAGS.num_train_epochs, tag="test"
-    )
+        inputs, outputs, answers = generation_loop(
+            model,
+            tokenizer,
+            loader,
+            n_eval_batches=len(loader),
+            iter=FLAGS.num_train_epochs,
+            log=False,
+            tag=split,
+        )
 
-    utils.save_model(
-        model, optimizer, lr_scheduler, checkpoint_dir, iter=FLAGS.num_train_epochs
-    )
+        utils.save_evals(
+            inputs,
+            outputs,
+            answers,
+            checkpoint_dir,
+            iter=FLAGS.num_train_epochs,
+            tag=split,
+        )
+
+        train_eval_loop(
+            model, tokenizer, loader, iter=FLAGS.num_train_epochs, tag=split
+        )
 
 
 if __name__ == "__main__":
