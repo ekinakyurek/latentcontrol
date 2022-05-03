@@ -1,6 +1,11 @@
+import gzip
 import os
+
+# import pdb
+import pickle
 from functools import partial
-from typing import Optional
+from typing import List, NamedTuple, Optional
+import numpy as np
 from absl import app, flags, logging
 from accelerate import Accelerator
 from tensorboardX import global_writer
@@ -13,6 +18,7 @@ import src.generation_patch  # noqa: F401, E501
 import src.metrics as metrics
 import src.utils as utils
 from scripts.commonsense_qa import CommonSenseQADataset  # noqa: F401, E501
+from scripts.gsm8k import GSM8KDataset  # noqa: F401, E501
 from scripts.numbers_data import ArithmethicDataset  # noqa: F401, E501
 from scripts.parity_data import ParityDataset  # noqa: F401, E501
 from src.postfix_tuner import (  # noqa: F401, E501
@@ -105,6 +111,10 @@ flags.DEFINE_boolean("parallelize", False, help="Model parallelize")
 
 flags.DEFINE_integer("N_per_digit", 200, help="how many trials per digit")
 
+flags.DEFINE_boolean("reversed_outputs", False, help="Reverse output digits")
+
+flags.DEFINE_integer("n_read_off_batches", 100, help="read off batches")
+
 
 def _experiment_suffix(FLAGS):
     model_name = FLAGS.model.replace("/", "_")
@@ -151,7 +161,7 @@ def get_model(
     }
 
     params_to_optimize = []
-    if "Prompt" in model_type:
+    if "PromptTuning" in model_type:
         params_to_optimize.append("soft_prompt")
         kwargs["n_tokens"] = n_prompt_tokens
 
@@ -159,8 +169,8 @@ def get_model(
         params_to_optimize.append("coder")
         kwargs["n_steps"] = n_coder_steps
 
-    if len(params_to_optimize) == 0:
-        params_to_optimize.append("")
+    if n_coder_steps is None and n_prompt_tokens is None:
+        params_to_optimize.append("bias")
 
     model = ModelType.from_pretrained(model, **kwargs)
 
@@ -197,11 +207,10 @@ def get_model(
     return model, optimizer, lr_scheduler
 
 
-def get_data(dataset="ArithmethicDataset", seed=0, N_per_digit=90):
+def get_data(dataset="ArithmethicDataset", seed=0, **kwargs):
     DataType = eval(dataset)
     datasets = [
-        DataType(split=s, seed=seed, N_per_digit=N_per_digit)
-        for s in ("train", "dev", "test")
+        DataType(split=s, seed=seed, **kwargs) for s in ("train", "dev", "test")
     ]
     return DataType, datasets
 
@@ -368,10 +377,17 @@ def generation_loop(
 
         for i in range(len(generations)):
             inp = inputs[i]
-            ans = answers[i].split(".")[0].strip()
+            ans = (
+                answers[i]
+                .split("#### ")[-1]
+                .split(".")[0]
+                .strip()
+                .replace("\n", "")
+            )
             gen = (
                 generations[i]
                 .replace(inp, "")
+                .split("#### ")[-1]
                 .split(".")[0]
                 .strip()
                 .replace("\n", "")
@@ -403,6 +419,19 @@ def generation_loop(
     )
 
 
+class ReadOffValues(NamedTuple):
+    output: np.ndarray
+    answer: np.ndarray
+    input: np.ndarray
+    output_str: str
+    answer_str: str
+    input_str: str
+    postfix: str
+    prefix: str
+    hidden_states: List
+    attentions: List
+
+
 def read_off_loop(
     model,
     tokenizer,
@@ -413,7 +442,6 @@ def read_off_loop(
     tag="val",
     **kwargs,
 ):
-
     writer = GlobalSummaryWriter.getSummaryWriter()
     if disable:
         prev_disable = model.disable
@@ -422,11 +450,7 @@ def read_off_loop(
     if model.disable:
         logging.info("Coder is disabled in generation")
 
-    string_outputs = []
-    string_answers = []
-    string_inputs = []
-    string_postfixes = []
-    string_prefix = None
+    reads = []
 
     for (t, data) in enumerate(dataloader):
         limit = data["input_lengths"][0]
@@ -436,6 +460,7 @@ def read_off_loop(
             max_length=FLAGS.max_generation_len,
             return_dict_in_generate=True,
             output_hidden_states=True,
+            output_attentions=True,
         )
 
         if isinstance(model, GPTPromptCoderMixin) or isinstance(
@@ -444,8 +469,21 @@ def read_off_loop(
             input["input_lengths"] = limit
 
         output = model.generate(**input)
+
+        generation_ids = output.sequences.cpu()
+        input_ids = data["input_ids"][:, :limit].cpu()
+        answer_ids = data["input_ids"][:, limit:].cpu()
+
+        generations = tokenizer.batch_decode(
+            generation_ids, skip_special_tokens=True
+        )
+        answers = tokenizer.batch_decode(answer_ids, skip_special_tokens=True)
+        inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+
         prefix_generations = None
         postfix_generations = None
+        prefix_ids = None
+        postfix_ids = None
 
         if hasattr(model, "n_tokens") and model.n_tokens is not None:
             prefix_len = model.n_tokens
@@ -473,42 +511,56 @@ def read_off_loop(
                 clean_up_tokenization_spaces=False,
             )
 
-        generations = tokenizer.batch_decode(
-            output.sequences, skip_special_tokens=True
-        )
+        for i in range(output.sequences.shape[0]):
+            attention = [
+                [
+                    att[layer][i, ...].cpu().numpy()
+                    for layer in list(range(-4, 0))
+                ]
+                for att in output.attentions
+            ]
 
-        answers = tokenizer.batch_decode(
-            data["input_ids"][:, limit:], skip_special_tokens=True
-        )
+            hidden = [
+                [
+                    hid[layer][i, ...].cpu().numpy()
+                    for layer in list(range(-4, 0))
+                ]
+                for hid in output.hidden_states
+            ]
 
-        inputs = tokenizer.batch_decode(
-            data["input_ids"][:, :limit], skip_special_tokens=True
-        )
-
-        for i in range(len(generations)):
             inp = inputs[i]
             ans = answers[i].split(".")[0].strip()
             gen = generations[i].replace(inp, "").split(".")[0].strip()
             logging.info(f"Q:{inp}\tP: {gen}\tA: {ans}")
+
             if prefix_generations is not None:
                 prefix = prefix_generations[i].strip()
                 logging.info(f"prefix:{prefix}")
+
             if postfix_generations is not None:
                 postfix = postfix_generations[i].strip()
                 logging.info(f"postfix:{postfix}")
 
-            string_postfixes.append(postfix)
-            string_outputs.append(gen)
-            string_answers.append(ans)
-            string_inputs.append(inp)
-            if string_prefix is None:
-                string_prefix = prefix
-            else:
-                assert prefix == string_prefix, "prefixes do not match"
+            reads.append(
+                ReadOffValues(
+                    output=generation_ids[i, :].numpy(),
+                    answer=answer_ids[i, :].numpy(),
+                    input=input_ids[i, :].numpy(),
+                    output_str=gen,
+                    answer_str=ans,
+                    input_str=inp,
+                    postfix=postfix_ids,
+                    prefix=prefix_ids,
+                    hidden_states=hidden,
+                    attentions=attention,
+                )
+            )
 
         if t == n_eval_batches:
             break
 
+    string_outputs = [result.output_str for result in reads]
+    string_answers = [result.answer_str for result in reads]
     accuracy = metrics.char_accuracy(string_outputs, string_answers)
     logging.info(f"eval/{tag}/accuracy/{iter}: {accuracy}")
     writer.add_scalar(f"eval/{tag}/accuracy", accuracy, iter)
@@ -520,13 +572,7 @@ def read_off_loop(
     if disable:
         model.disable = prev_disable
 
-    return (
-        string_inputs,
-        string_outputs,
-        string_answers,
-        string_postfixes,
-        string_prefix,
-    )
+    return reads
 
 
 def train(_):
@@ -541,7 +587,10 @@ def train(_):
     seed, new_seed = utils.split_seed(seed)
 
     DataType, datasets = get_data(
-        seed=new_seed, dataset=FLAGS.dataset, N_per_digit=FLAGS.N_per_digit
+        seed=new_seed,
+        dataset=FLAGS.dataset,
+        N_per_digit=FLAGS.N_per_digit,
+        reversed_outputs=FLAGS.reversed_outputs,
     )
 
     logging.info(f"{[len(d) for d in datasets]}")
@@ -660,17 +709,40 @@ def train(_):
     logging.info("Running final evals for test set")
     logging.info(f"Checkpoint dir: {checkpoint_dir}")
 
+    if FLAGS.n_read_off_batches is not None:
+        reads = read_off_loop(
+            model,
+            tokenizer,
+            dataloaders[0],
+            n_eval_batches=FLAGS.n_read_off_batches,
+            iter=FLAGS.num_train_epochs,
+            log=True,
+            tag="train",
+        )
+
+        read_off_path = os.path.join(checkpoint_dir, "train_reads.pickle")
+
+        with gzip.open(read_off_path, "wb") as handle:
+            pickle.dump(reads, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     for split, loader in zip(["val", "test"], dataloaders[1:3]):
 
-        # inputs, outputs, answers, postfixes, prefix = read_off_loop(
-        #     model,
-        #     tokenizer,
-        #     loader,
-        #     n_eval_batches=len(loader),
-        #     iter=FLAGS.num_train_epochs,
-        #     log=True,
-        #     tag=split,
-        # )
+        if FLAGS.n_read_off_batches is not None:
+            reads = read_off_loop(
+                model,
+                tokenizer,
+                loader,
+                n_eval_batches=FLAGS.n_read_off_batches,
+                iter=FLAGS.num_train_epochs,
+                log=True,
+                tag=split,
+            )
+
+            read_off_path = os.path.join(
+                checkpoint_dir, f"{split}_reads.pickle"
+            )
+            with gzip.open(read_off_path, "wb") as handle:
+                pickle.dump(reads, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         inputs, outputs, answers = generation_loop(
             model,

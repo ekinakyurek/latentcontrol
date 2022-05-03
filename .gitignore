@@ -1,6 +1,10 @@
 .multilm/
 .ipynb_checkpoints/
 plots/
+exps/
+fairseq/
+debug/
+backup/
 
 
 # Byte-compiled / optimized / DLL files

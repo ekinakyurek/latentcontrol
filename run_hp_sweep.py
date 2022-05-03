@@ -35,7 +35,11 @@ def main(_):
         "--disable_tqdm "
         f"--max_generation_len {FLAGS.max_generation_len} "
         f"--gaccum {FLAGS.gaccum} "
+        f"--N_per_digit={FLAGS.N_per_digit} "
     )
+
+    if FLAGS.reversed_outputs:
+        train_cmd += "--reversed_outputs "
 
     gpus = list(FLAGS.gpus_to_use.split("_"))
     gpus = {id: [] for id in gpus}
@@ -43,9 +47,9 @@ def main(_):
     exp_files = []
 
     for seed in range(0, 1):
-        for train_type in ("PromptTuningLM",):
+        for train_type in ("PromptTuningPostfixLM", "PromptTuningLM"):
             for backbone in ("EleutherAI/gpt-j-6B",):
-                for step_index, steps in enumerate((60,)):
+                for step_index, steps in enumerate((30,)):
                     if train_type == "FineTuning" and step_index > 0:
                         continue
 
@@ -79,7 +83,6 @@ def main(_):
                             f"--logdir={local_exp_folder} "
                             f"--learning_rate={learning_rate} "
                             f"--dataset={FLAGS.dataset} "
-                            f"--N_per_digit={FLAGS.N_per_digit} "
                         )
 
                         if train_type != "FineTuning":

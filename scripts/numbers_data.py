@@ -45,13 +45,20 @@ class ArithmethicDataset(Dataset):
 
     split_ratios: List = [("train", 0.8), ("dev", 0.1), ("test", 0.1)]
 
-    def __init__(self, split_ratios: List = None, **kwargs):
+    def __init__(
+        self,
+        split_ratios: List = None,
+        reversed_outputs: bool = False,
+        **kwargs,
+    ):
 
         for (k, v) in kwargs.items():
             self.__setattr__(k, v)
 
         if split_ratios is not None:
             self.split_ratios = split_ratios
+
+        self.reversed_outputs = reversed_outputs
 
         self.data = self.get_data(**kwargs)
 
@@ -206,11 +213,13 @@ class ArithmethicDataset(Dataset):
         x1_str = _digit_to_str(ex.x1)
         x2_str = _digit_to_str(ex.x2)
         y_str = _digit_to_str(ex.y)
+        if self.reversed_outputs:
+            y_str = y_str[::-1]
         return Example(x1_str, x2_str, op_str, y_str)
 
     def __getitem__(self, idx):
         ex = self.stringify(self.data[idx])
-        input = f"{ex.x1} {ex.op} {ex.x2} ="
+        input = f"Q: What is {ex.x1} {ex.op} {ex.x2} ?\n"
         output = f"{ex.y} ."
         return input, output
 
