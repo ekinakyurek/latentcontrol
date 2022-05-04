@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, get_scheduler
 import src.generation_patch  # noqa: F401, E501
+import src.gptj_patch  # noqa: F401, E501
 import src.metrics as metrics
 import src.utils as utils
 from scripts.commonsense_qa import CommonSenseQADataset  # noqa: F401, E501

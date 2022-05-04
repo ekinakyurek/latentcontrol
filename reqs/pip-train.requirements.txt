@@ -26,3 +26,4 @@ ipywidgets
 tensorboardX
 tensorboard_reducer
 datasets
+bertviz
