@@ -1,7 +1,9 @@
+import math
 import os
 from pathlib import Path
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from absl import logging
 from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
 
@@ -83,6 +85,8 @@ class GPTPostfixMixin:
             ).uniform_(-random_range, random_range)
 
         self.coder = nn.Embedding(n_steps, self.config.n_embd)
+        self.coder_query = nn.Embedding(n_steps, self.config.n_embd)
+        self.coder_gate = nn.Embedding(n_steps, self.config.n_embd)
         # Initialize weight
         self.coder.weight.data = init_prompt_value
         self.coder.weight.requires_grad_(True)
@@ -183,8 +187,47 @@ class GPTPostfixMixin:
         )
         return torch.cat([input_ids, prompt_ids, output_ids], dim=1)
 
-    def _add_prompt_embeds(self, input_embeds, output_embeds):
-        prompt_embeds = self.coder.weight.expand(input_embeds.shape[0], -1, -1)
+    def _attention(prompt_embeds, input_embeds, mask=None):
+        # prompt_embeds: T', H
+        # input_embeds: B, T, H
+        query = prompt_embeds[None, ...]
+        n_dim = input_embeds.shape[-1]
+        scores = (query * input_embeds.transpose(-1, -2)) * (
+            1.0 / math.sqrt(n_dim)
+        )
+        if mask is not None:
+            scores -= mask * 1e10
+        probs = F.softmax(scores, dim=1)  # B, T', T
+        output = probs @ input_embeds  # B, T', H
+        return output
+
+    def _template_gates(prompt_embeds, input_embeds, mask=None):
+        # prompt_embeds: T', H
+        # input_embeds: B, T, H
+        query = prompt_embeds[None, ...]
+        n_dim = input_embeds.shape[-1]
+        scores = (query * input_embeds.transpose(-1, -2)) * (
+            1.0 / math.sqrt(n_dim)
+        )
+        gate = scores.sum(dim=-1, keepdim=True)
+        gate = F.sigmoid(gate)
+        return gate
+
+    def _add_prompt_embeds(self, input_embeds, output_embeds, mask=None):
+
+        attention_output = self._attention(
+            self.coder_query.weight, input_embeds, mask=mask
+        )
+        template_gate = self._template_gates(
+            self.coder_gate.weight, input_embeds, mask=mask
+        )
+        prompt_embeds = self.coder.weight[None, ...]
+
+        prompt_embeds = (
+            template_gate * attention_output
+            + (1 - template_gate) * self.coder.weight
+        )
+
         return torch.cat([input_embeds, prompt_embeds, output_embeds], dim=1)
 
     def forward(
