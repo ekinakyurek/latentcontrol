@@ -39,7 +39,6 @@ ARG DEBUG=0
 ARG USE_CUDA=1
 ARG USE_ROCM=0
 ARG USE_PRECOMPILED_HEADERS=1
-ARG CLEAN_CACHE_BEFORE_BUILD=0
 ARG MKL_MODE=include
 ARG CUDA_VERSION=11.3.1
 ARG MAGMA_VERSION=113
@@ -65,7 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 ########################################################################
 FROM install-${LINUX_DISTRO} AS install-base
 
-LABEL maintainer=veritas9872@gmail.com
+LABEL maintainer=akyurekekin@gmail.com
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
@@ -156,7 +155,7 @@ ENV USE_MKLDNN=0
 ARG MAGMA_VERSION
 RUN $conda install -y \
         --file /tmp/reqs/conda-build.requirements.txt \
-        magma-cuda${MAGMA_VERSION} \
+        magma-cuda$(echo ${CUDA_VERSION} | sed 's/\.//; s/\..*//') \
         nomkl && \
     conda clean -ya
 
@@ -202,12 +201,9 @@ FROM build-base AS build-torch
 WORKDIR /opt/pytorch
 ARG PYTORCH_VERSION_TAG
 ARG TORCH_URL=https://github.com/pytorch/pytorch.git
-RUN git clone --recursive --jobs 0 ${TORCH_URL} /opt/pytorch && \
-    if [ -n ${PYTORCH_VERSION_TAG} ]; then \
-        git checkout ${PYTORCH_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
+RUN git clone --jobs 0 --depth 1 --single-branch --shallow-submodules \
+        --recurse-submodules --branch ${PYTORCH_VERSION_TAG} \
+        ${TORCH_URL} /opt/pytorch
 
 # PyTorch itself can find the host GPU architecture
 # on its own but its subsidiary libraries cannot,
@@ -229,7 +225,6 @@ ARG BUILD_TEST=0
 ARG BUILD_CAFFE2=0
 ARG BUILD_CAFFE2_OPS=0
 ARG USE_PRECOMPILED_HEADERS
-ARG CLEAN_CACHE_BEFORE_BUILD
 ARG TORCH_CUDA_ARCH_LIST
 ARG CMAKE_PREFIX_PATH=/opt/conda
 ARG TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
@@ -244,16 +239,9 @@ ARG TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 #    python setup.py bdist_wheel -d /tmp/dist && \
 #    python setup.py install
 
-WORKDIR /opt/_pytorch
 RUN --mount=type=cache,target=/opt/ccache \
-    --mount=type=cache,target=/opt/_pytorch \
-    if [ ${CLEAN_CACHE_BEFORE_BUILD} != 0 ]; then \
-        find /opt/_pytorch -mindepth 1 -delete; \
-    fi && \
-    rsync -a /opt/pytorch/ /opt/_pytorch/ && \
     python setup.py bdist_wheel -d /tmp/dist && \
-    python setup.py install && \
-    rm -rf .git
+    python setup.py install
 
 # The following mechanism combines the reproducibility of Docker with the speed of local compilation.
 # The entire directory is used as a BuildKit cache to speed up installation between separate builds.
@@ -321,12 +309,9 @@ FROM build-torch AS build-vision
 WORKDIR /opt/vision
 ARG TORCHVISION_VERSION_TAG
 ARG VISION_URL=https://github.com/pytorch/vision.git
-RUN git clone --recursive --jobs 0 ${VISION_URL} /opt/vision && \
-    if [ -n ${TORCHVISION_VERSION_TAG} ]; then \
-        git checkout ${TORCHVISION_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
+RUN git clone --jobs 0 --depth 1 --single-branch --shallow-submodules \
+        --recurse-submodules --branch ${TORCHVISION_VERSION_TAG} \
+        ${VISION_URL} /opt/vision
 
 # Install Pillow SIMD before TorchVision build and add it to `/tmp/dist`.
 # Pillow will be uninstalled if it is present.
@@ -339,18 +324,10 @@ ARG DEBUG
 ARG USE_CUDA
 ARG USE_FFMPEG=1
 ARG USE_PRECOMPILED_HEADERS
-ARG CLEAN_CACHE_BEFORE_BUILD
 ARG FORCE_CUDA=${USE_CUDA}
 ARG TORCH_CUDA_ARCH_LIST
-WORKDIR /opt/_vision
 RUN --mount=type=cache,target=/opt/ccache \
-    --mount=type=cache,target=/opt/_vision \
-    if [ ${CLEAN_CACHE_BEFORE_BUILD} != 0 ]; then \
-        find /opt/_vision -mindepth 1 -delete; \
-    fi && \
-    rsync -a /opt/vision/ /opt/_vision/ && \
-    python setup.py bdist_wheel -d /tmp/dist && \
-    rm -rf .git
+    python setup.py bdist_wheel -d /tmp/dist
 
 ########################################################################
 FROM build-torch AS build-text
@@ -358,25 +335,14 @@ FROM build-torch AS build-text
 WORKDIR /opt/text
 ARG TORCHTEXT_VERSION_TAG
 ARG TEXT_URL=https://github.com/pytorch/text.git
-RUN git clone --recursive --jobs 0 ${TEXT_URL} /opt/text && \
-    if [ -n ${TORCHTEXT_VERSION_TAG} ]; then \
-        git checkout ${TORCHTEXT_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
+RUN git clone --jobs 0 --depth 1 --single-branch --shallow-submodules \
+        --recurse-submodules --branch ${TORCHTEXT_VERSION_TAG} \
+        ${TEXT_URL} /opt/text
 
 # TorchText does not use CUDA.
 ARG USE_PRECOMPILED_HEADERS
-ARG CLEAN_CACHE_BEFORE_BUILD
-WORKDIR /opt/_text
 RUN --mount=type=cache,target=/opt/ccache \
-    --mount=type=cache,target=/opt/_text \
-    if [ ${CLEAN_CACHE_BEFORE_BUILD} != 0 ]; then \
-        find /opt/_text -mindepth 1 -delete; \
-    fi && \
-    rsync -a /opt/text/ /opt/_text/ && \
-    python setup.py bdist_wheel -d /tmp/dist && \
-    rm -rf .git
+    python setup.py bdist_wheel -d /tmp/dist
 
 ########################################################################
 FROM build-torch AS build-audio
@@ -384,31 +350,25 @@ FROM build-torch AS build-audio
 WORKDIR /opt/audio
 ARG TORCHAUDIO_VERSION_TAG
 ARG AUDIO_URL=https://github.com/pytorch/audio.git
-RUN git clone --recursive --jobs 0 ${AUDIO_URL} /opt/audio && \
-    if [ -n ${TORCHAUDIO_VERSION_TAG} ]; then \
-        git checkout ${TORCHAUDIO_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
+RUN git clone --jobs 0 --depth 1 --single-branch --shallow-submodules \
+        --recurse-submodules --branch ${TORCHAUDIO_VERSION_TAG} \
+        ${AUDIO_URL} /opt/audio
 
 ARG USE_CUDA
-ARG USE_ROCM
 ARG USE_PRECOMPILED_HEADERS
-# The cache should be cleaned by default due to a bug in TorchAudio.
-ARG CLEAN_CACHE_BEFORE_BUILD=1
-ARG BUILD_TORCHAUDIO_PYTHON_EXTENSION=1
 ARG BUILD_FFMPEG=1
 ARG TORCH_CUDA_ARCH_LIST
-WORKDIR /opt/_audio
-RUN --mount=type=cache,target=/opt/ccache \
-    --mount=type=cache,target=/opt/_audio \
-    if [ ${CLEAN_CACHE_BEFORE_BUILD} != 0 ]; then \
-        find /opt/_audio -mindepth 1 -delete; \
-    fi && \
-    rsync -a /opt/audio/ /opt/_audio/ && \
-    python setup.py bdist_wheel -d /tmp/dist && \
-    rm -rf .git
 
+# # Fix for https://github.com/pytorch/audio/issues/2295
+# ARG BUG_FILE=/opt/audio/third_party/zlib/CMakeLists.txt
+# ARG BUG_URL=https://zlib.net/zlib-1.2.11.tar.gz
+# ARG FIX_URL=https://zlib.net/zlib-1.2.12.tar.gz
+# ARG BUG_HASH=c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+# ARG FIX_HASH=91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9
+# RUN sed -i "s%${BUG_URL}%${FIX_URL}%; s%${BUG_HASH}%${FIX_HASH}%" ${BUG_FILE}
+
+RUN --mount=type=cache,target=/opt/ccache \
+    python setup.py bdist_wheel -d /tmp/dist
 
 ########################################################################
 FROM build-torch AS build-apex
@@ -424,26 +384,58 @@ RUN git clone --recursive --jobs 0 ${APEX_URL} /opt/apex && \
     fi
 
 ARG USE_CUDA
-ARG CLEAN_CACHE_BEFORE_BUILD
-ARG TORCH_CUDA_ARCH_LIST
-WORKDIR /opt/_apex
 RUN --mount=type=cache,target=/opt/ccache \
-    --mount=type=cache,target=/opt/_apex \
-    if [ ${CLEAN_CACHE_BEFORE_BUILD} != 0 ]; then \
-        find /opt/_apex -mindepth 1 -delete; \
-    fi && \
-    rsync -a /opt/apex/ /opt/_apex/ && \
-    python setup.py --cuda_ext --cpp_ext --deprecated_fused_adam --xentropy --fast_multihead_attn bdist_wheel -d /tmp/dist && \
+    python setup.py --cpp_ext --cuda_ext --deprecated_fused_adam --xentropy --fast_multihead_attn bdist_wheel -d /tmp/dist && \
+    rm -rf .git
+
+FROM build-apex AS build-megatron
+
+WORKDIR /opt/megatron
+ARG MEGATRON_VERSION_TAG
+ARG MEGATRON_URL=https://github.com/ngoyal2707/Megatron-LM.git
+RUN git clone --recursive --jobs 0 ${MEGATRON_URL} /opt/megatron && \
+    if [ -n ${MEGATRON_VERSION_TAG} ]; then \
+        git checkout ${MEGATRON_VERSION_TAG} && \
+        git submodule sync && \
+        git submodule update --init --recursive --jobs 0; \
+    fi
+
+ARG USE_CUDA
+RUN --mount=type=cache,target=/opt/ccache \
+    python setup.py bdist_wheel -d /tmp/dist && \
     rm -rf .git
 
 
+FROM build-megatron AS build-fairscale
 
+WORKDIR /opt/fairscale
+ARG FAIRSCALE_VERSION_TAG
+ARG FAIRSCALE_URL=https://github.com/facebookresearch/fairscale.git
+RUN git clone --recursive --jobs 0 ${FAIRSCALE_URL} /opt/fairscale && \
+    if [ -n ${FAIRSCALE_VERSION_TAG} ]; then \
+        git checkout ${FAIRSCALE_VERSION_TAG} && \
+        git submodule sync && \
+        git submodule update --init --recursive --jobs 0; \
+    fi
+
+ARG USE_CUDA
+RUN --mount=type=cache,target=/opt/ccache \
+    python setup.py bdist_wheel -d /tmp/dist && \
+    rm -rf .git
+
+
+########################################################################
 FROM build-base AS build-pure
 
 # Z-Shell related libraries.
-RUN git clone https://github.com/sindresorhus/pure.git /opt/zsh/pure
-RUN git clone https://github.com/zsh-users/zsh-autosuggestions /opt/zsh/zsh-autosuggestions
-RUN git clone https://github.com/zsh-users/zsh-syntax-highlighting.git /opt/zsh/zsh-syntax-highlighting
+ARG PURE_URL=https://github.com/sindresorhus/pure.git
+ARG ZSHA_URL=https://github.com/zsh-users/zsh-autosuggestions
+ARG ZSHS_URL=https://github.com/zsh-users/zsh-syntax-highlighting.git
+
+RUN git clone --depth 1 ${PURE_URL} /opt/zsh/pure
+RUN git clone --depth 1 ${ZSHA_URL} /opt/zsh/zsh-autosuggestions
+RUN git clone --depth 1 ${ZSHS_URL} /opt/zsh/zsh-syntax-highlighting
+
 
 ########################################################################
 FROM ${BUILD_IMAGE} AS train-builds
@@ -463,9 +455,11 @@ FROM ${BUILD_IMAGE} AS train-builds
 COPY --from=install-base /opt/conda /opt/conda
 COPY --from=build-pillow /tmp/dist  /tmp/dist
 COPY --from=build-vision /tmp/dist  /tmp/dist
-COPY --from=build-audio  /tmp/dist  /tmp/dist
+# COPY --from=build-audio  /tmp/dist  /tmp/dist
 COPY --from=build-text   /tmp/dist  /tmp/dist
 COPY --from=build-apex   /tmp/dist  /tmp/dist
+COPY --from=build-megatron   /tmp/dist  /tmp/dist
+COPY --from=build-fairscale   /tmp/dist  /tmp/dist
 
 # `COPY` new builds here to minimize the likelihood of cache misses.
 COPY --from=build-pure  /opt/zsh /opt
@@ -636,6 +630,8 @@ COPY --from=build-vision /tmp/dist  /tmp/dist
 COPY --from=build-audio  /tmp/dist  /tmp/dist
 COPY --from=build-text   /tmp/dist  /tmp/dist
 COPY --from=build-apex   /tmp/dist  /tmp/dist
+COPY --from=build-megatron   /tmp/dist  /tmp/dist
+COPY --from=build-fairscale   /tmp/dist  /tmp/dist
 
 COPY reqs/apt-deploy.requirements.txt /tmp/reqs/apt-deploy.requirements.txt
 COPY reqs/pip-deploy.requirements.txt /tmp/reqs/pip-deploy.requirements.txt
