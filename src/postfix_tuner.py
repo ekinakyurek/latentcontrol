@@ -187,7 +187,7 @@ class GPTPostfixMixin:
         )
         return torch.cat([input_ids, prompt_ids, output_ids], dim=1)
 
-    def _attention(prompt_embeds, input_embeds, mask=None):
+    def _attention(self, prompt_embeds, input_embeds, mask=None):
         # prompt_embeds: T', H
         # input_embeds: B, T, H
         query = prompt_embeds[None, ...]
@@ -196,12 +196,12 @@ class GPTPostfixMixin:
             1.0 / math.sqrt(n_dim)
         )
         if mask is not None:
-            scores -= mask * 1e10
+            scores -= (1 - mask[..., None]) * 1e10
         probs = F.softmax(scores, dim=1)  # B, T', T
         output = probs @ input_embeds  # B, T', H
         return output
 
-    def _template_gates(prompt_embeds, input_embeds, mask=None):
+    def _template_gates(self, prompt_embeds, input_embeds, mask=None):
         # prompt_embeds: T', H
         # input_embeds: B, T, H
         query = prompt_embeds[None, ...]
@@ -209,7 +209,9 @@ class GPTPostfixMixin:
         scores = (query * input_embeds.transpose(-1, -2)) * (
             1.0 / math.sqrt(n_dim)
         )
-        gate = scores.sum(dim=-1, keepdim=True)
+        if mask is not None:
+            scores -= (1 - mask[..., None]) * 1e10
+        gate = scores.sum(dim=1, keepdim=True)
         gate = F.sigmoid(gate)
         return gate
 
@@ -259,37 +261,15 @@ class GPTPostfixMixin:
             return output
 
         if input_lengths is not None:
-            if input_ids is not None:
-                input_ids, output_ids = self._divide_inputs(
-                    input_ids, input_lengths
-                )
-                inputs_embeds = self.transformer.wte(input_ids)
-                output_embeds = self.transformer.wte(output_ids)
-            elif inputs_embeds is not None:
-                inputs_embeds, output_embeds = self._divide_inputs(
-                    inputs_embeds, input_lengths
-                )
-
-            inputs_embeds = self._add_prompt_embeds(
-                inputs_embeds, output_embeds
-            )
-            input_ids = None
-
-            if labels is not None:
-                input_labels, output_labels = self._divide_inputs(
-                    labels, input_lengths
-                )
-                labels = self._add_prompt_tokens(
-                    input_labels, output_labels, -100
-                )
 
             if attention_mask is not None:
-                attention_mask, output_attention_mask = self._divide_inputs(
-                    attention_mask, input_lengths
-                )
+                (
+                    input_attention_mask,
+                    output_attention_mask,
+                ) = self._divide_inputs(attention_mask, input_lengths)
 
                 attention_mask = self._add_prompt_tokens(
-                    attention_mask, output_attention_mask, 1
+                    input_attention_mask, output_attention_mask, 1
                 )
                 #  update position ids
                 # position_ids = kwargs.get('position_ids')
@@ -309,6 +289,31 @@ class GPTPostfixMixin:
                 #         position_ids = position_ids[:, -1].unsqueeze(-1)
 
                 kwargs["position_ids"] = position_ids
+
+            if labels is not None:
+                input_labels, output_labels = self._divide_inputs(
+                    labels, input_lengths
+                )
+                labels = self._add_prompt_tokens(
+                    input_labels, output_labels, -100
+                )
+
+            if input_ids is not None:
+                input_ids, output_ids = self._divide_inputs(
+                    input_ids, input_lengths
+                )
+                inputs_embeds = self.transformer.wte(input_ids)
+                output_embeds = self.transformer.wte(output_ids)
+            elif inputs_embeds is not None:
+                inputs_embeds, output_embeds = self._divide_inputs(
+                    inputs_embeds, input_lengths
+                )
+
+            inputs_embeds = self._add_prompt_embeds(
+                inputs_embeds, output_embeds, mask=input_attention_mask
+            )
+            input_ids = None
+
         else:
             logging.error("input lengths empty or both")
 

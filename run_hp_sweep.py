@@ -33,8 +33,8 @@ def main(_):
     train_cmd = (
         "export PYTHONHASHSEED=0;python -u scripts/train_model.py "
         "--disable_tqdm "
-        f"--max_generation_len {FLAGS.max_generation_len} "
-        f"--gaccum {FLAGS.gaccum} "
+        f"--max_generation_len={FLAGS.max_generation_len} "
+        f"--gaccum={FLAGS.gaccum} "
         f"--N_per_digit={FLAGS.N_per_digit} "
     )
 
@@ -47,9 +47,9 @@ def main(_):
     exp_files = []
 
     for seed in range(0, 1):
-        for train_type in ("PromptTuningPostfixLM", "PromptTuningLM"):
+        for train_type in ("PromptTuningPostfixLM",):
             for backbone in ("EleutherAI/gpt-j-6B",):
-                for step_index, steps in enumerate((30,)):
+                for step_index, steps in enumerate((10,)):
                     if train_type == "FineTuning" and step_index > 0:
                         continue
 
