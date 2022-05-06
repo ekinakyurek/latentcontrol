@@ -28,3 +28,4 @@ tensorboard_reducer
 datasets
 bertviz
 accelerate
+regex

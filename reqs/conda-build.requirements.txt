@@ -15,7 +15,8 @@ libpng
 lld
 ninja
 numpy
-# pillow  # Using Pillow-SIMD.
+sklearn
+# pillow  # Using Pillow-SIMD builded in docker
 pkgconfig
 pyyaml
 requests
