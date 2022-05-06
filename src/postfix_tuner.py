@@ -190,8 +190,9 @@ class GPTPostfixMixin:
     def _attention(self, prompt_embeds, input_embeds, mask=None):
         # prompt_embeds: T', H
         # input_embeds: B, T, H
-        query = prompt_embeds[None, ...]
+        query = prompt_embeds.repeat(input_embeds.shape[0], 1, 1)
         n_dim = input_embeds.shape[-1]
+
         scores = (query * input_embeds.transpose(-1, -2)) * (
             1.0 / math.sqrt(n_dim)
         )
@@ -204,7 +205,7 @@ class GPTPostfixMixin:
     def _template_gates(self, prompt_embeds, input_embeds, mask=None):
         # prompt_embeds: T', H
         # input_embeds: B, T, H
-        query = prompt_embeds[None, ...]
+        query = prompt_embeds.repeat(input_embeds.shape[0], 1, 1)
         n_dim = input_embeds.shape[-1]
         scores = (query * input_embeds.transpose(-1, -2)) * (
             1.0 / math.sqrt(n_dim)
