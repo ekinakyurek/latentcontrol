@@ -27,3 +27,4 @@ tensorboardX
 tensorboard_reducer
 datasets
 bertviz
+accelerate
