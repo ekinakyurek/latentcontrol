@@ -579,8 +579,8 @@ RUN --mount=type=bind,from=train-builds,source=/tmp/dist,target=/tmp/dist \
         -r /tmp/reqs/pip/requirements.txt \
         /tmp/dist/*.whl
 
-RUN git clone https://github.com/ekinakyurek/fairseq $HOME/fairseq && \
-    python -m pip install --no-cache-dir --no-deps $HOME/fairseq
+RUN git clone https://github.com/facebookresearch/metaseq.git $HOME/metaseq && \
+    python -m pip install --no-cache-dir --no-deps $HOME/metaseq
 
 # Settings common to both gomp and iomp.
 # ENV OMP_PROC_BIND=CLOSE
