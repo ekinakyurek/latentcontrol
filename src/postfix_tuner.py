@@ -193,7 +193,7 @@ class GPTPostfixMixin:
         query = prompt_embeds.repeat(input_embeds.shape[0], 1, 1)
         n_dim = input_embeds.shape[-1]
 
-        scores = (query * input_embeds.transpose(-1, -2)) * (
+        scores = (query @ input_embeds.transpose(-1, -2)) * (
             1.0 / math.sqrt(n_dim)
         )
         if mask is not None:
@@ -207,7 +207,7 @@ class GPTPostfixMixin:
         # input_embeds: B, T, H
         query = prompt_embeds.repeat(input_embeds.shape[0], 1, 1)
         n_dim = input_embeds.shape[-1]
-        scores = (query * input_embeds.transpose(-1, -2)) * (
+        scores = (query @ input_embeds.transpose(-1, -2)) * (
             1.0 / math.sqrt(n_dim)
         )
         if mask is not None:
