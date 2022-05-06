@@ -197,8 +197,8 @@ class GPTPostfixMixin:
             1.0 / math.sqrt(n_dim)
         )
         if mask is not None:
-            scores -= (1 - mask[..., None]) * 1e10
-        probs = F.softmax(scores, dim=1)  # B, T', T
+            scores -= (1 - mask[:, None, :]) * 1e10
+        probs = F.softmax(scores, dim=-1)  # B, T', T
         output = probs @ input_embeds  # B, T', H
         return output
 
@@ -211,8 +211,8 @@ class GPTPostfixMixin:
             1.0 / math.sqrt(n_dim)
         )
         if mask is not None:
-            scores -= (1 - mask[..., None]) * 1e10
-        gate = scores.sum(dim=1, keepdim=True)
+            scores -= (1 - mask[:, None, :]) * 1e10
+        gate = scores.sum(dim=-1, keepdim=True)
         gate = F.sigmoid(gate)
         return gate
 
