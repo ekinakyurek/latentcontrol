@@ -149,7 +149,7 @@ def get_model(
 
     if "gpt2" in model:
         ModelType = eval("GPT2" + model_type)
-    elif "Neo" in model:
+    elif "neo" in model:
         ModelType = eval("GPTNeo" + model_type)
     elif "j" in model:
         ModelType = eval("GPTJ" + model_type)
@@ -641,7 +641,9 @@ def train(_):
         model, optimizer, *dataloaders
     )
 
-    model.parallelize()
+    if "j" in FLAGS.model or "xl" in FLAGS.model:
+        logging.info("Parallelizing layers")
+        model.parallelize()
 
     if not FLAGS.evaluate:
 
