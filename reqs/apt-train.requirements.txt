@@ -12,5 +12,5 @@ tmux
 rsync
 nano
 git
+less
 gpustat
-

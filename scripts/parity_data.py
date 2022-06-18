@@ -50,6 +50,7 @@ class ParityDataset(Dataset):
         N_per_digit: int = 200,
         split: str = "train",
         seed: int = 0,
+        reversed_outputs=False,
     ) -> List[Example]:
 
         rng = np.random.default_rng(seed)
@@ -58,7 +59,7 @@ class ParityDataset(Dataset):
             for _ in range(N_per_digit * e1):
                 x1 = ParityDataset.random_with_n_digits(rng, e1 + 1)
                 y = np.sum(x1) % 2
-                y = "even" if y == 0 else "odd"
+                y = str(x1.sum())
                 x1 = " ".join(x1.astype(int).astype(str))
                 examples.add((x1, y))
 
@@ -163,17 +164,15 @@ class ParityDataset(Dataset):
 
     def __getitem__(self, idx):
         ex = self.data[idx]
-        input = f"{ex.x1} is "
-        output = f"{ex.y} parity."
+        input = f"Q: How many 1s in {ex.x1}?\n"
+        output = f"A: {ex.y}."
         return input, output
 
 
 if __name__ == "__main__":
     datasets = [ParityDataset(split=s) for s in ("train", "dev", "test")]
-    pdb.set_trace()
-    assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0, str(
-        set(datasets[0].data).intersection(datasets[2].data)
-    )
+    # pdb.set_trace()
+    # assert len(set(datasets[0].data).intersection(datasets[2].data)) == 0
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
@@ -184,5 +183,6 @@ if __name__ == "__main__":
 
     logging.info(f"{[len(d) for d in datasets]}")
 
+    pdb.set_trace()
     for data in train_loader:
         pdb.set_trace()

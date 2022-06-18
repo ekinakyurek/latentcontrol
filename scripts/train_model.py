@@ -6,6 +6,7 @@ import pickle
 from functools import partial
 from typing import List, NamedTuple, Optional
 import numpy as np
+import torch
 from absl import app, flags, logging
 from accelerate import Accelerator
 from tensorboardX import global_writer
@@ -19,8 +20,10 @@ import src.gptj_patch  # noqa: F401, E501
 import src.metrics as metrics
 import src.utils as utils
 from scripts.commonsense_qa import CommonSenseQADataset  # noqa: F401, E501
+from scripts.esnli import ESNLIDataset  # noqa: F401, E501
 from scripts.gsm8k import GSM8KDataset  # noqa: F401, E501
 from scripts.numbers_data import ArithmethicDataset  # noqa: F401, E501
+from scripts.numglue import NumGLUEDataset  # noqa: F401, E501
 from scripts.parity_data import ParityDataset  # noqa: F401, E501
 from src.postfix_tuner import (  # noqa: F401, E501
     GPT2PostfixLM,
@@ -114,7 +117,7 @@ flags.DEFINE_integer("N_per_digit", 200, help="how many trials per digit")
 
 flags.DEFINE_boolean("reversed_outputs", False, help="Reverse output digits")
 
-flags.DEFINE_integer("n_read_off_batches", 100, help="read off batches")
+flags.DEFINE_integer("n_read_off_batches", None, help="read off batches")
 
 
 def _experiment_suffix(FLAGS):
@@ -171,7 +174,7 @@ def get_model(
         kwargs["n_steps"] = n_coder_steps
 
     if n_coder_steps is None and n_prompt_tokens is None:
-        params_to_optimize.append("bias")
+        params_to_optimize.append("")
 
     model = ModelType.from_pretrained(model, **kwargs)
 
@@ -261,9 +264,9 @@ def train_eval_loop(model, tokenizer, dataloader, tag="val", iter=0):
     total_count = 0.0
     for data in tqdm(dataloader, disable=FLAGS.disable_tqdm):
         input = dict(
-            input_ids=data["input_ids"],
-            attention_mask=data["attention_mask"],
-            labels=data["labels"],
+            input_ids=data["input_ids"].to(model.transformer.device),
+            attention_mask=data["attention_mask"].to(model.transformer.device),
+            labels=data["labels"].to(model.transformer.device),
         )
         if isinstance(model, GPTPromptCoderMixin) or isinstance(
             model, GPTPostfixMixin
@@ -289,9 +292,9 @@ def train_loop(
     optimizer.zero_grad()
     for step, data in enumerate(tqdm(dataloader, disable=FLAGS.disable_tqdm)):
         input = dict(
-            input_ids=data["input_ids"],
-            attention_mask=data["attention_mask"],
-            labels=data["labels"],
+            input_ids=data["input_ids"].to(model.transformer.device),
+            attention_mask=data["attention_mask"].to(model.transformer.device),
+            labels=data["labels"].to(model.transformer.device),
         )
 
         if isinstance(model, GPTPromptCoderMixin) or isinstance(
@@ -312,14 +315,17 @@ def train_loop(
         total_count += token_count
 
         if (step + 1) % FLAGS.evaluate_every == 0:
-            generation_loop(
-                model,
-                tokenizer,
-                dataloader,
-                n_eval_batches=10,
-                tag="train",
-                iter=iter,
-            )
+            with torch.no_grad():
+                model.eval()
+                generation_loop(
+                    model,
+                    tokenizer,
+                    dataloader,
+                    n_eval_batches=10,
+                    tag="train",
+                    iter=iter,
+                )
+                model.train()
 
     lr_scheduler.step()
     avg_loss = total_loss / total_count
@@ -354,8 +360,10 @@ def generation_loop(
     for (t, data) in enumerate(tqdm(dataloader, disable=FLAGS.disable_tqdm)):
         limit = data["input_lengths"][0]
         input = dict(
-            input_ids=data["input_ids"][:, :limit],
-            attention_mask=data["attention_mask"][:, :limit],
+            input_ids=data["input_ids"][:, :limit].to(model.transformer.device),
+            attention_mask=data["attention_mask"][:, :limit].to(
+                model.transformer.device
+            ),
             max_length=FLAGS.max_generation_len,
         )
 
@@ -455,6 +463,10 @@ def read_off_loop(
 
     for (t, data) in enumerate(dataloader):
         limit = data["input_lengths"][0]
+        data["input_ids"] = data["input_ids"].to(model.transformer.device)
+        data["attention_mask"] = data["attention_mask"].to(
+            model.transformer.device
+        )
         input = dict(
             input_ids=data["input_ids"][:, :limit],
             attention_mask=data["attention_mask"][:, :limit],
@@ -644,6 +656,8 @@ def train(_):
     if "j" in FLAGS.model or "xl" in FLAGS.model:
         logging.info("Parallelizing layers")
         model.parallelize()
+        if "Coder" in FLAGS.model_type:
+            model.coder = model.coder.to(model.transformer.last_device)
 
     if not FLAGS.evaluate:
 
@@ -757,6 +771,10 @@ def train(_):
             tag=split,
         )
 
+        train_eval_loop(
+            model, tokenizer, loader, iter=FLAGS.num_train_epochs, tag=split
+        )
+
         utils.save_evals(
             inputs,
             outputs,
@@ -764,10 +782,6 @@ def train(_):
             checkpoint_dir,
             iter=FLAGS.num_train_epochs,
             tag=split,
-        )
-
-        train_eval_loop(
-            model, tokenizer, loader, iter=FLAGS.num_train_epochs, tag=split
         )
 
 

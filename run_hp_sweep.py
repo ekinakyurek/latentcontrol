@@ -5,6 +5,7 @@ from absl import app, flags, logging
 import scripts.train_model  # noqa: F401
 
 
+# python run_hp_sweep.py --gpus_to_use 0,1,2,3 --dataset ESNLIDataset --gaccum 4 --exp_folder exps/ensli_later
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
@@ -33,9 +34,10 @@ def main(_):
     train_cmd = (
         "export PYTHONHASHSEED=0;python -u scripts/train_model.py "
         "--disable_tqdm "
-        f"--max_generation_len {FLAGS.max_generation_len} "
-        f"--gaccum {FLAGS.gaccum} "
+        f"--max_generation_len={FLAGS.max_generation_len} "
+        f"--gaccum={FLAGS.gaccum} "
         f"--N_per_digit={FLAGS.N_per_digit} "
+        f"--batch_size={FLAGS.batch_size} "
     )
 
     if FLAGS.reversed_outputs:
@@ -46,14 +48,20 @@ def main(_):
     print(f"gpus: {gpus}")
     exp_files = []
 
-    for seed in range(0, 1):
-        for train_type in ("PromptTuningPostfixLM", "PromptTuningLM"):
-            for backbone in ("EleutherAI/gpt-j-6B",):
-                for step_index, steps in enumerate((30,)):
-                    if train_type == "FineTuning" and step_index > 0:
-                        continue
+    for seed in range(1):
+        for train_type in ("FineTuning",):
 
-                    for learning_rate in (0.001,):
+            for backbone in ("EleutherAI/gpt-j-6B",):
+
+                for step_index, steps in enumerate((30,)):
+
+                    # if train_type == "FineTuning" and step_index > 0:
+                    #     continue
+
+                    # if train_type == "PromptTuningPostfixLM" and steps > 30:
+                    #     continue
+
+                    for learning_rate in (0.0001,):
 
                         if train_type == "FineTuning":
                             local_exp_folder = os.path.join(
@@ -102,6 +110,7 @@ def main(_):
                         )
                         cmd = gpu_str + train_cmd + params + log_str
                         logging.info(f"RUN: {cmd}")
+                        # time.sleep(120)
                         subprocess.Popen(cmd, shell=True)
                         exp_files.append(output_file)
 

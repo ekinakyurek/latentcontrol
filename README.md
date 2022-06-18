@@ -1,7 +1,16 @@
 # Multi LM
+## Installation (conda)
 
-## Installation
+```
+conda create -n lm python=3.9
+conda activate lm
+pip install --upgrade pip
+pip install torch==1.10.2+cu111 torchvision==0.11.3+cu111 torchaudio==0.10.2+cu111 -f https://download.pytorch.org/whl/cu111/torch_stable.html
+pip install -r reqs/pip-train.requirements.txt
+pip install setuptools==59.5.0
+```
+
+## Installation (Docker)
 ```SHELL
-    DOCKER_BUILDKIT=1 docker compose up -d --build full
-    DOCKER_BUILDKIT=1 make all-full $(tr '\n' ' ' < .env)
+   make up
 ```

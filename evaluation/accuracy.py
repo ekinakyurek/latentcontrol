@@ -18,7 +18,8 @@ def accuracy_stats_of_a_set(fname):
         all_generations = []
         all_answers = []
         with open(fname) as f:
-            for line in f:
+            lines = f.read().replace("\n\t", "\t").splitlines()
+            for line in lines:
                 input, gen, ans = line.strip().split("\t")
                 input_x = input.split("plus")[0].strip()
                 input_x = re.sub("[^0-9]", "", input_x)

@@ -67,7 +67,7 @@ class GPTPromptCoderMixin:
     def initialize_coder(
         self,
         n_steps: int = 20,
-        random_range: float = 0.01,
+        random_range: float = 0.001,
         initialize_from_vocab: bool = True,
     ) -> None:
 
@@ -75,7 +75,8 @@ class GPTPromptCoderMixin:
         coder = []
         for step in range(self.n_steps + 1):
             init_weight_value = (
-                torch.randn(self.config.n_embd, self.config.n_embd)
+                torch.eye(self.config.n_embd)
+                + torch.randn(self.config.n_embd, self.config.n_embd)
                 * random_range
             )
 
@@ -89,9 +90,9 @@ class GPTPromptCoderMixin:
                 ).uniform_(-random_range, random_range)
 
             layer = nn.Linear(self.config.n_embd, self.config.n_embd)
-            layer.weight.data = init_weight_value
+            layer.weight.data[:] = init_weight_value[:]
             layer.weight.requires_grad_(True)
-            layer.bias.data = init_bias_value
+            layer.bias.data[:] = init_bias_value[:]
             layer.bias.requires_grad_(True)
             coder.append(layer)
 
@@ -193,6 +194,8 @@ class GPTPromptCoderMixin:
             ):
                 output.attention_mask = attention_mask
 
+            output.logits.to(self.transformer.first_device)
+
             return output
 
         if input_lengths is not None:
@@ -239,6 +242,7 @@ class GPTPromptCoderMixin:
 
         input_position_ids = position_ids
 
+        inputs_embeds = inputs_embeds.to(transformer.first_device)
         output = transformer.forward(
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
@@ -267,6 +271,8 @@ class GPTPromptCoderMixin:
                     [input_position_ids, position_ids], dim=-1
                 )
 
+            latent_embed = latent_embed.to(transformer.first_device)
+
             output = transformer.forward(
                 inputs_embeds=latent_embed,
                 attention_mask=attention_mask,
@@ -279,6 +285,8 @@ class GPTPromptCoderMixin:
         W = self.coder[self.n_steps].weight
         b = self.coder[self.n_steps].bias
         latent_embed = output[0][:, -1:, :] @ W + b
+
+        latent_embed = latent_embed.to(transformer.first_device)
 
         attention_mask = self._extend_attention_mask(attention_mask, n_steps=1)
 
@@ -304,13 +312,13 @@ class GPTPromptCoderMixin:
             position_ids=output_position_ids,
             **kwargs,
         )
-
-        lm_logits = self.lm_head(output[0]).contiguous()
+        last_layer = output[0].to(self.lm_head.weight.device)
+        lm_logits = self.lm_head(last_layer).contiguous()
 
         # eos_id = transformer.wte.padding_idx
         # lm_logits[:, :, eos_id] -= 9999
 
-        output.logits = lm_logits
+        output.logits = lm_logits.to(transformer.first_device)
 
         if not hasattr(output, "attention_mask"):
             output.attention_mask = attention_mask

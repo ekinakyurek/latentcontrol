@@ -7,7 +7,7 @@
 # Perhaps the BuildKit dependency is not a good idea since not everyone can use it.
 # However, the Dockerfile in the official PyTorch repository also uses BuildKit.
 
-# This image uses multi-stage builds. See the link below for a detailed description.
+# This image uses muslti-stage builds. See the link below for a detailed description.
 # https://docs.docker.com/develop/develop-images/multistage-build
 # The build process is similar to a neural network with complicated control flow.
 # The `stages` are like blocks in the network, with control flow implemented
@@ -388,43 +388,7 @@ RUN --mount=type=cache,target=/opt/ccache \
     python setup.py --cpp_ext --cuda_ext --deprecated_fused_adam --xentropy --fast_multihead_attn bdist_wheel -d /tmp/dist && \
     rm -rf .git
 
-FROM build-apex AS build-megatron
-
-WORKDIR /opt/megatron
-ARG MEGATRON_VERSION_TAG
-ARG MEGATRON_URL=https://github.com/ngoyal2707/Megatron-LM.git
-RUN git clone --recursive --jobs 0 ${MEGATRON_URL} /opt/megatron && \
-    if [ -n ${MEGATRON_VERSION_TAG} ]; then \
-        git checkout ${MEGATRON_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
-
-ARG USE_CUDA
-RUN --mount=type=cache,target=/opt/ccache \
-    python setup.py bdist_wheel -d /tmp/dist && \
-    rm -rf .git
-
-
-FROM build-megatron AS build-fairscale
-
-WORKDIR /opt/fairscale
-ARG FAIRSCALE_VERSION_TAG
-ARG FAIRSCALE_URL=https://github.com/facebookresearch/fairscale.git
-RUN git clone --recursive --jobs 0 ${FAIRSCALE_URL} /opt/fairscale && \
-    if [ -n ${FAIRSCALE_VERSION_TAG} ]; then \
-        git checkout ${FAIRSCALE_VERSION_TAG} && \
-        git submodule sync && \
-        git submodule update --init --recursive --jobs 0; \
-    fi
-
-ARG USE_CUDA
-RUN --mount=type=cache,target=/opt/ccache \
-    python setup.py bdist_wheel -d /tmp/dist && \
-    rm -rf .git
-
-
-########################################################################
+# ########################################################################
 FROM build-base AS build-pure
 
 # Z-Shell related libraries.
@@ -455,11 +419,9 @@ FROM ${BUILD_IMAGE} AS train-builds
 COPY --from=install-base /opt/conda /opt/conda
 COPY --from=build-pillow /tmp/dist  /tmp/dist
 COPY --from=build-vision /tmp/dist  /tmp/dist
-# COPY --from=build-audio  /tmp/dist  /tmp/dist
+COPY --from=build-audio  /tmp/dist  /tmp/dist
 COPY --from=build-text   /tmp/dist  /tmp/dist
 COPY --from=build-apex   /tmp/dist  /tmp/dist
-COPY --from=build-megatron   /tmp/dist  /tmp/dist
-COPY --from=build-fairscale   /tmp/dist  /tmp/dist
 
 # `COPY` new builds here to minimize the likelihood of cache misses.
 COPY --from=build-pure  /opt/zsh /opt
@@ -579,8 +541,21 @@ RUN --mount=type=bind,from=train-builds,source=/tmp/dist,target=/tmp/dist \
         -r /tmp/reqs/pip/requirements.txt \
         /tmp/dist/*.whl
 
-RUN git clone https://github.com/facebookresearch/metaseq.git $HOME/metaseq && \
-    python -m pip install --no-cache-dir --no-deps $HOME/metaseq
+# ARG MEGATRON_URL=https://github.com/ngoyal2707/Megatron-LM.git
+# ARG FAIRSCALE_URL=https://github.com/facebookresearch/fairscale.git
+# ARG METASEQ_URL=https://github.com/facebookresearch/metaseq.git
+
+# RUN git clone --branch fairseq_v2 ${MEGATRON_URL} $HOME/Megatron-LM && \
+#     python -m pip install --no-cache-dir --no-deps $HOME/Megatron-LM
+
+# RUN git clone ${FAIRSCALE_URL} $HOME/fairscale && \
+# WORKDIR $HOME/fairscale
+# RUN git checkout prefetch_fsdp_params && \
+#     python -m pip install --no-cache-dir --no-deps $HOME/fairscale
+
+# WORKDIR $HOME
+# RUN git clone ${METASEQ_URL} $HOME/metaseq && \
+#     python -m pip install --no-cache-dir --no-deps $HOME/metaseq
 
 # Settings common to both gomp and iomp.
 # ENV OMP_PROC_BIND=CLOSE
@@ -630,8 +605,6 @@ COPY --from=build-vision /tmp/dist  /tmp/dist
 COPY --from=build-audio  /tmp/dist  /tmp/dist
 COPY --from=build-text   /tmp/dist  /tmp/dist
 COPY --from=build-apex   /tmp/dist  /tmp/dist
-COPY --from=build-megatron   /tmp/dist  /tmp/dist
-COPY --from=build-fairscale   /tmp/dist  /tmp/dist
 
 COPY reqs/apt-deploy.requirements.txt /tmp/reqs/apt-deploy.requirements.txt
 COPY reqs/pip-deploy.requirements.txt /tmp/reqs/pip-deploy.requirements.txt

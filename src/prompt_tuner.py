@@ -88,7 +88,9 @@ class GPTPromptTuningMixin:
         self.soft_prompt.weight.data = init_prompt_value
 
     def _cat_learned_embedding_to_input(self, input_ids) -> torch.Tensor:
-        inputs_embeds = self.transformer.wte(input_ids)
+        inputs_embeds = self.transformer.wte(
+            input_ids.to(self.transformer.wte.weight.device)
+        )
 
         if len(list(inputs_embeds.shape)) == 2:
             inputs_embeds = inputs_embeds.unsqueeze(0)
@@ -277,6 +279,7 @@ class GPTPromptTuningMixin:
         )
         if not hasattr(output, "attention_mask"):
             output.attention_mask = attention_mask
+
         return output
 
 
