@@ -135,6 +135,7 @@ def _get_info_str(FLAGS):
 
 def get_model(
     model_type: str,
+    num_total_train_iterations: int,
     model: str,
     init_from_vocab: bool = True,
     padding_idx: Optional[int] = None,
@@ -205,7 +206,11 @@ def get_model(
         name=lr_scheduler_type,
         optimizer=optimizer,
         num_warmup_steps=num_warmup_steps,
-        num_training_steps=num_train_epochs,
+        num_training_steps=num_total_train_iterations,
+    )
+
+    logging.info(
+        f"Total number of training steps: {num_total_train_iterations}"
     )
 
     return model, optimizer, lr_scheduler
@@ -308,6 +313,7 @@ def train_loop(
 
         if (step + 1) % FLAGS.gaccum == 0:
             optimizer.step()
+            lr_scheduler.step()
             optimizer.zero_grad()
 
         token_count = (data["labels"] != -100).sum().item()
@@ -327,7 +333,6 @@ def train_loop(
                 )
                 model.train()
 
-    lr_scheduler.step()
     avg_loss = total_loss / total_count
     logging.info(f"train/loss/{iter}: {avg_loss}")
     writer.add_scalar("train/loss", avg_loss, iter)
@@ -618,7 +623,7 @@ def train(_):
         model=FLAGS.model, padding_idx=FLAGS.padding_idx
     )
     FLAGS.padding_idx = padding_idx
-
+    train_dataset_size = len(datasets[0])
     model, optimizer, lr_scheduler = get_model(
         model_type=FLAGS.model_type,
         model=FLAGS.model,
@@ -629,6 +634,7 @@ def train(_):
         num_warmup_steps=FLAGS.num_warmup_steps,
         weight_decay=FLAGS.weight_decay,
         num_train_epochs=FLAGS.num_train_epochs,
+        num_total_train_iterations=FLAGS.num_train_epochs*train_dataset_size/(FLAGS.gaccum * FLAGS.batch_size),
         padding_idx=FLAGS.padding_idx,
     )
 
