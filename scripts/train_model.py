@@ -57,9 +57,9 @@ flags.DEFINE_integer("batch_size", 8, help="Batch size")
 
 flags.DEFINE_integer("max_generation_len", 42, help="Number of training epochs")
 
-flags.DEFINE_integer(
-    "num_warmup_steps", 0, help="Number of warmup steps for lr scheduler"
-)
+# flags.DEFINE_integer(
+#     "num_warmup_steps", 0, help="Number of warmup steps for lr scheduler"
+# )
 
 flags.DEFINE_integer("n_prompt_tokens", None, help="Number of prompt_tokens")
 
@@ -212,6 +212,10 @@ def get_model(
     logging.info(
         f"Total number of training steps: {num_total_train_iterations}"
     )
+    logging.info(
+        f"Total number of warmup steps: {num_warmup_steps}"
+    )
+
 
     return model, optimizer, lr_scheduler
 
@@ -624,6 +628,8 @@ def train(_):
     )
     FLAGS.padding_idx = padding_idx
     train_dataset_size = len(datasets[0])
+    num_total_train_iterations = FLAGS.num_train_epochs*train_dataset_size/(FLAGS.gaccum * FLAGS.batch_size)
+    num_warmup_steps = num_total_train_iterations * 0.1
     model, optimizer, lr_scheduler = get_model(
         model_type=FLAGS.model_type,
         model=FLAGS.model,
@@ -631,10 +637,10 @@ def train(_):
         n_prompt_tokens=FLAGS.n_prompt_tokens,
         n_coder_steps=FLAGS.n_coder_steps,
         learning_rate=FLAGS.learning_rate,
-        num_warmup_steps=FLAGS.num_warmup_steps,
+        num_warmup_steps=num_warmup_steps,
         weight_decay=FLAGS.weight_decay,
         num_train_epochs=FLAGS.num_train_epochs,
-        num_total_train_iterations=FLAGS.num_train_epochs*train_dataset_size/(FLAGS.gaccum * FLAGS.batch_size),
+        num_total_train_iterations=num_total_train_iterations,
         padding_idx=FLAGS.padding_idx,
     )
 
