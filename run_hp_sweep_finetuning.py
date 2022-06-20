@@ -4,16 +4,10 @@ import time
 from absl import app, flags, logging
 import scripts.train_model  # noqa: F401
 
+# JOBS:
+# python run_hp_sweep.py --gpus_to_use 0,1,2,3_4,5,6,7 --exp_folder=exps/esnli  --dataset=ESNLIDataset --gaccum=16 --batch_size=2 --max_generation_len=128
+# python run_hp_sweep.py --gpus_to_use 0,1,2,3_4,5,6,7 --exp_folder=exps/cqa  --dataset=CommonSenseQADataset --gaccum=16 --batch_size=2 --max_generation_len=128
 
-##
-# # learning_rate (mesh) -> 5e-5
-# flags.DEFINE_float("learning_rate", 0.001, help="Learning rate")
-# # weight_decay (mesh) -> 0.1
-# flags.DEFINE_float(
-#     "weight_decay", 0.001, help="weight decay parameter for optimizer"
-# )
-
-# python run_hp_sweep.py --gpus_to_use 0,1,2,3 --dataset ESNLIDataset --gaccum 4 --exp_folder exps/ensli_later
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
@@ -46,7 +40,7 @@ def main(_):
         f"--gaccum={FLAGS.gaccum} "
         f"--N_per_digit={FLAGS.N_per_digit} "
         f"--batch_size={FLAGS.batch_size} "
-        f"--evaluate_every=2000 "
+        f"--evaluate_every=1000 "
         f"--weight_decay=0.1 "
     )
 
