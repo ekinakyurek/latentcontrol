@@ -5,8 +5,8 @@ from absl import app, flags, logging
 import scripts.train_model  # noqa: F401
 
 # JOBS:
-# python run_hp_sweep.py --gpus_to_use 0,1,2,3_4,5,6,7 --exp_folder=exps/esnli  --dataset=ESNLIDataset --gaccum=16 --batch_size=2 --max_generation_len=128
-# python run_hp_sweep.py --gpus_to_use 8,9,10,11_12,13,14,15 --exp_folder=exps/cqa  --dataset=CommonSenseQADataset --gaccum=16 --batch_size=2 --max_generation_len=128
+# python run_hp_sweep_finetuning.py --gpus_to_use 0,1,2,3_4,5,6,7 --exp_folder=exps/esnli  --dataset=ESNLIDataset --gaccum=16 --batch_size=2 --max_generation_len=128
+# python run_hp_sweep_finetuning.py --gpus_to_use 8,9,10,11_12,13,14,15 --exp_folder=exps/cqa  --dataset=CommonSenseQADataset --gaccum=16 --batch_size=2 --max_generation_len=128
 
 FLAGS = flags.FLAGS
 
