@@ -36,7 +36,6 @@ def main(_):
         "--disable_tqdm "
         f"--max_generation_len={FLAGS.max_generation_len} "
         f"--gaccum={FLAGS.gaccum} "
-        f"--N_per_digit={FLAGS.N_per_digit} "
         f"--batch_size={FLAGS.batch_size} "
     )
 
