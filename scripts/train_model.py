@@ -3,6 +3,7 @@ import os
 
 # import pdb
 import pickle
+import math
 from functools import partial
 from typing import List, NamedTuple, Optional
 import numpy as np
@@ -15,6 +16,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, get_scheduler
+from torch.optim.lr_scheduler import LambdaLR
 import src.generation_patch  # noqa: F401, E501
 import src.gptj_patch  # noqa: F401, E501
 import src.metrics as metrics
@@ -57,10 +59,6 @@ flags.DEFINE_integer("batch_size", 8, help="Batch size")
 
 flags.DEFINE_integer("max_generation_len", 42, help="Number of training epochs")
 
-flags.DEFINE_integer(
-    "num_warmup_steps", 0, help="Number of warmup steps for lr scheduler"
-)
-
 flags.DEFINE_integer("n_prompt_tokens", None, help="Number of prompt_tokens")
 
 flags.DEFINE_integer("n_coder_steps", None, help="Number of coder steps")
@@ -68,9 +66,12 @@ flags.DEFINE_integer("n_coder_steps", None, help="Number of coder steps")
 flags.DEFINE_boolean(
     "init_from_vocab", True, help="Init prompt tokens from vocab"
 )
-
+# learning_rate (mesh) -> 5e-5
 flags.DEFINE_float("learning_rate", 0.001, help="Learning rate")
 
+flags.DEFINE_float("lr_ratio", 0.1, help="Final learning rate annealing ratio")
+
+# weight_decay (mesh) -> 0.1
 flags.DEFINE_float(
     "weight_decay", 0.001, help="weight decay parameter for optimizer"
 )
@@ -120,6 +121,36 @@ flags.DEFINE_boolean("reversed_outputs", False, help="Reverse output digits")
 flags.DEFINE_integer("n_read_off_batches", None, help="read off batches")
 
 
+def get_linear_schedule_with_warmup_and_lr_ratio(optimizer, num_warmup_steps, num_training_steps, lr_ratio=0.0, last_epoch=-1):
+    """
+    Create a schedule with a learning rate that decreases linearly from the initial lr set in the optimizer
+    to lr * gamma (gamma < 1.0), after a warmup period during which it increases linearly
+    from 0 to the initial lr set in the optimizer.
+    Args:
+        optimizer ([`~torch.optim.Optimizer`]):
+            The optimizer for which to schedule the learning rate.
+        num_warmup_steps (`int`):
+            The number of steps for the warmup phase.
+        num_training_steps (`int`):
+            The total number of training steps.
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+        lr_ratio (`float`, *optional*, defaults to 0):
+            ratio of the final lr / inital lr
+    Return:
+        `torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
+    """
+
+    def lr_lambda(current_step: int):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(
+            lr_ratio, float(num_training_steps - current_step * (1 - lr_ratio)) / float(max(1, num_training_steps - num_warmup_steps))
+        )
+
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
 def _experiment_suffix(FLAGS):
     model_name = FLAGS.model.replace("/", "_")
     data_name = FLAGS.dataset
@@ -135,6 +166,7 @@ def _get_info_str(FLAGS):
 
 def get_model(
     model_type: str,
+    num_total_train_iterations: int,
     model: str,
     init_from_vocab: bool = True,
     padding_idx: Optional[int] = None,
@@ -144,6 +176,7 @@ def get_model(
     learning_rate: float = 0.001,
     num_warmup_steps: int = 0,
     weight_decay: float = 0.001,
+    lr_ratio: float = 0.1,
     num_train_epochs: int = 15,
 ):
 
@@ -201,12 +234,29 @@ def get_model(
 
     optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 
-    lr_scheduler = get_scheduler(
-        name=lr_scheduler_type,
+    # lr_scheduler = get_scheduler(
+    #     name=lr_scheduler_type,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=num_warmup_steps,
+    #     num_training_steps=num_total_train_iterations,
+    # )
+    #
+    lr_scheduler = get_linear_schedule_with_warmup_and_lr_ratio(
         optimizer=optimizer,
         num_warmup_steps=num_warmup_steps,
-        num_training_steps=num_train_epochs,
+        num_training_steps=num_total_train_iterations,
+        lr_ratio=lr_ratio)
+
+    logging.info(
+        f"Total number of training steps: {num_total_train_iterations}"
     )
+    logging.info(
+        f"Total number of warmup steps: {num_warmup_steps}"
+    )
+    logging.info(
+        f"Learning rate annealing ratio: {lr_ratio}"
+    )
+
 
     return model, optimizer, lr_scheduler
 
@@ -308,6 +358,7 @@ def train_loop(
 
         if (step + 1) % FLAGS.gaccum == 0:
             optimizer.step()
+            lr_scheduler.step()
             optimizer.zero_grad()
 
         token_count = (data["labels"] != -100).sum().item()
@@ -327,7 +378,6 @@ def train_loop(
                 )
                 model.train()
 
-    lr_scheduler.step()
     avg_loss = total_loss / total_count
     logging.info(f"train/loss/{iter}: {avg_loss}")
     writer.add_scalar("train/loss", avg_loss, iter)
@@ -618,7 +668,9 @@ def train(_):
         model=FLAGS.model, padding_idx=FLAGS.padding_idx
     )
     FLAGS.padding_idx = padding_idx
-
+    train_dataset_size = len(datasets[0])
+    num_total_train_iterations = math.ceil(FLAGS.num_train_epochs*train_dataset_size/(FLAGS.gaccum * FLAGS.batch_size))
+    num_warmup_steps = int(num_total_train_iterations * 0.1)
     model, optimizer, lr_scheduler = get_model(
         model_type=FLAGS.model_type,
         model=FLAGS.model,
@@ -626,10 +678,12 @@ def train(_):
         n_prompt_tokens=FLAGS.n_prompt_tokens,
         n_coder_steps=FLAGS.n_coder_steps,
         learning_rate=FLAGS.learning_rate,
-        num_warmup_steps=FLAGS.num_warmup_steps,
+        num_warmup_steps=num_warmup_steps,
         weight_decay=FLAGS.weight_decay,
         num_train_epochs=FLAGS.num_train_epochs,
+        num_total_train_iterations=num_total_train_iterations,
         padding_idx=FLAGS.padding_idx,
+        lr_ratio=FLAGS.lr_ratio
     )
 
     model.config.pad_token_id = padding_idx
@@ -689,7 +743,7 @@ def train(_):
             train_eval_loop(model, tokenizer, dataloaders[1], iter=epoch)
             logging.info(f"Epoch {epoch} training starts")
 
-            if (epoch + 1) % FLAGS.save_every == 0:
+            if FLAGS.model_type== "FineTuning" and (epoch + 1) % FLAGS.save_every == 0:
                 utils.save_model(
                     model,
                     optimizer,
