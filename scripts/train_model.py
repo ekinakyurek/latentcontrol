@@ -743,7 +743,7 @@ def train(_):
             train_eval_loop(model, tokenizer, dataloaders[1], iter=epoch)
             logging.info(f"Epoch {epoch} training starts")
 
-            if (epoch + 1) % FLAGS.save_every == 0:
+            if FLAGS.model_type== "FineTuning" and (epoch + 1) % FLAGS.save_every == 0:
                 utils.save_model(
                     model,
                     optimizer,
