@@ -63,8 +63,25 @@ def main(_):
     fnames = glob.glob(f"{FLAGS.exp_folder}/**/*.tsv", recursive=True)
     for fname in fnames:
         accuracy = accuracy_stats_of_a_set(fname)
+        iid_sum = 0.0
+        iid_total = 0.0
+        print(accuracy.keys())
+        for k in range(2, 8):
+            k = str(k)
+            if k in accuracy:
+                iid_total += accuracy[k]["length"]
+                iid_sum += accuracy[k]["exact_match"] * accuracy[k]["length"]
+        iid_accuracy = iid_sum / iid_total
+        print("iid_accuracy: ", iid_accuracy)
+        ood_sum = 0.0
+        ood_total = 0.0
+        for k in (9, 10):
+            k = str(k)
+            if k in accuracy:
+                print(f"{k}-D accuracy: ", accuracy[k]["exact_match"])
+
         print(fname)
-        print(json.dumps(accuracy, indent=2))
+        # print(json.dumps(accuracy, indent=2))
 
 
 if __name__ == "__main__":

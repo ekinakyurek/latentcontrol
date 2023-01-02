@@ -1,9 +1,13 @@
 import os
+from typing import List
 from pathlib import Path
+
+from absl import logging
 import torch
 import torch.nn as nn
-from absl import logging
-from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
+from transformers import GPT2LMHeadModel
+from transformers import GPTJForCausalLM
+from transformers import GPTNeoForCausalLM
 
 
 class GPTPostfixMixin:
@@ -13,6 +17,7 @@ class GPTPostfixMixin:
         pretrained_model_name_or_path: str,
         coder_path: str = None,
         n_steps: int = None,
+        n_coder_tokens: List[int] = None,
         random_range: float = 0.5,
         initialize_from_vocab: bool = True,
         padding_idx: int = None,
@@ -35,6 +40,7 @@ class GPTPostfixMixin:
 
             model.initialize_coder(
                 n_steps=n_steps,
+                n_coder_tokens=n_coder_tokens,
                 random_range=random_range,
                 initialize_from_vocab=initialize_from_vocab,
             )
@@ -67,22 +73,33 @@ class GPTPostfixMixin:
     def initialize_coder(
         self,
         n_steps: int = 20,
+        n_coder_tokens: List[int] = None,
         random_range: float = 0.01,
         initialize_from_vocab: bool = True,
     ) -> None:
 
-        self.n_steps = n_steps
+        if n_coder_tokens:
+            self.n_steps = len(n_coder_tokens)
+            logging.info(f"n_steps set to len(n_coder_tokens)={self.n_steps}")
+        else:
+            self.n_steps = n_steps
 
         if initialize_from_vocab:
-            init_prompt_value = (
-                self.transformer.wte.weight[:n_steps].clone().detach()
-            )
+            if n_coder_tokens:
+                logging.info("Initializing from postfix string tokens")
+                init_prompt_value = (
+                    self.transformer.wte.weight[n_coder_tokens].clone().detach()
+                )
+            else:
+                init_prompt_value = (
+                    self.transformer.wte.weight[:self.n_steps].clone().detach()
+                )
         else:
             init_prompt_value = torch.FloatTensor(
-                n_steps, self.config.n_embd
+                self.n_steps, self.config.n_embd
             ).uniform_(-random_range, random_range)
 
-        self.coder = nn.Embedding(n_steps, self.config.n_embd)
+        self.coder = nn.Embedding(self.n_steps, self.config.n_embd)
         # Initialize weight
         self.coder.weight.data = init_prompt_value
         self.coder.weight.requires_grad_(True)

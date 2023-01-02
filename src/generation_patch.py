@@ -1,6 +1,8 @@
 from typing import Any, Dict
+
 import torch
-from transformers.generation_utils import GenerationMixin, ModelOutput
+from transformers.generation_utils import GenerationMixin
+from transformers.generation_utils import ModelOutput
 
 
 @staticmethod

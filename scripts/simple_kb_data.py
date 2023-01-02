@@ -1,6 +1,7 @@
-import os
 from dataclasses import dataclass
+import os
 from typing import List, Mapping
+
 from src.utils import set_seed
 
 
@@ -36,10 +37,15 @@ class KBEntry:
     relation: str
 
     def __str__(self):
-        return f"In {self.universe} , {self.animal1} {self.relation} {self.animal2} ."
+        return (
+            f"In {self.universe} ,"
+            f" {self.animal1} {self.relation} {self.animal2} ."
+        )
 
 
-def generate_KB(animals: List[Animal], universes: List[Universe]) -> List[KBEntry]:
+def generate_KB(
+    animals: List[Animal], universes: List[Universe]
+) -> List[KBEntry]:
     """Generates knowledge base"""
     KB = []
     for universe in universes:
@@ -82,16 +88,31 @@ def main():
         Universe(
             "Earth",
             {
-                "mamal": {"likes": ("mamal",), "dislikes": ("reptile", "amphibian")},
-                "reptile": {"likes": ("amphibian", "reptile"), "dislikes": "mamal"},
-                "amphibian": {"likes": ("amphibian", "reptile"), "dislikes": "mamal"},
+                "mamal": {
+                    "likes": ("mamal",),
+                    "dislikes": ("reptile", "amphibian"),
+                },
+                "reptile": {
+                    "likes": ("amphibian", "reptile"),
+                    "dislikes": "mamal",
+                },
+                "amphibian": {
+                    "likes": ("amphibian", "reptile"),
+                    "dislikes": "mamal",
+                },
             },
         ),
         Universe(
             "Metaverse",
             {
-                "mamal": {"likes": ("reptile",), "dislikes": ("mamal", "amphibian")},
-                "reptile": {"likes": ("mamal", "reptile"), "dislikes": "amphibian"},
+                "mamal": {
+                    "likes": ("reptile",),
+                    "dislikes": ("mamal", "amphibian"),
+                },
+                "reptile": {
+                    "likes": ("mamal", "reptile"),
+                    "dislikes": "amphibian",
+                },
                 "amphibian": {
                     "likes": ("reptile",),
                     "dislikes": ("mamal", "amphibian"),

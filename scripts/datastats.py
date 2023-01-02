@@ -1,9 +1,11 @@
-import os
 from collections import Counter
+import os
 from typing import List, Mapping
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+
 from src.utils import set_seed
 
 
@@ -67,7 +69,13 @@ def main():
             G[i, j] = p
 
     ax = sns.heatmap(
-        G, xticklabels=vocab, yticklabels=vocab, vmin=0, vmax=1.0, annot=True, fmt=".1f"
+        G,
+        xticklabels=vocab,
+        yticklabels=vocab,
+        vmin=0,
+        vmax=1.0,
+        annot=True,
+        fmt=".1f",
     )
 
     ax.xaxis.tick_top()  # x axis on top

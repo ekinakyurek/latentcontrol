@@ -1,9 +1,12 @@
 import os
 from pathlib import Path
+
+from absl import logging
 import torch
 import torch.nn as nn
-from absl import logging
-from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
+from transformers import GPT2LMHeadModel
+from transformers import GPTJForCausalLM
+from transformers import GPTNeoForCausalLM
 
 
 class GPTPromptCoderMixin:

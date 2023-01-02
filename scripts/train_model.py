@@ -1,52 +1,50 @@
+from functools import partial
 import gzip
 import os
-
 # import pdb
 import pickle
-from functools import partial
 from typing import List, NamedTuple, Optional
-import numpy as np
-import torch
-from absl import app, flags, logging
+
+from absl import app
+from absl import flags
+from absl import logging
 from accelerate import Accelerator
+import numpy as np
 from tensorboardX import global_writer
 from tensorboardX.global_writer import GlobalSummaryWriter
+import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoTokenizer, get_scheduler
-import src.generation_patch  # noqa: F401, E501
-import src.gptj_patch  # noqa: F401, E501
-import src.metrics as metrics
-import src.utils as utils
+from transformers import AutoTokenizer
+from transformers import get_scheduler
+
 from scripts.commonsense_qa import CommonSenseQADataset  # noqa: F401, E501
 from scripts.esnli import ESNLIDataset  # noqa: F401, E501
 from scripts.gsm8k import GSM8KDataset  # noqa: F401, E501
 from scripts.numbers_data import ArithmethicDataset  # noqa: F401, E501
 from scripts.numglue import NumGLUEDataset  # noqa: F401, E501
 from scripts.parity_data import ParityDataset  # noqa: F401, E501
-from src.postfix_tuner import (  # noqa: F401, E501
-    GPT2PostfixLM,
-    GPTNeoPostfixLM,
-    GPTPostfixMixin,
-)
-from src.prompt_coder import (  # noqa: F401, E501
-    GPT2PromptCoderLM,
-    GPTJPromptCoderLM,
-    GPTNeoPromptCoderLM,
-    GPTPromptCoderMixin,
-)
-from src.prompt_tuner import (  # noqa: F401, E501
-    GPT2PromptTuningCoderLM,
-    GPT2PromptTuningLM,
-    GPT2PromptTuningPostfixLM,
-    GPTJPromptTuningCoderLM,
-    GPTJPromptTuningLM,
-    GPTJPromptTuningPostfixLM,
-    GPTNeoPromptTuningCoderLM,
-    GPTNeoPromptTuningLM,
-    GPTNeoPromptTuningPostfixLM,
-)
+import src.generation_patch  # noqa: F401, E501
+import src.gptj_patch  # noqa: F401, E501
+import src.metrics as metrics
+from src.postfix_tuner import GPT2PostfixLM  # noqa: F401, E501
+from src.postfix_tuner import GPTNeoPostfixLM
+from src.postfix_tuner import GPTPostfixMixin
+from src.prompt_coder import GPT2PromptCoderLM  # noqa: F401, E501
+from src.prompt_coder import GPTJPromptCoderLM
+from src.prompt_coder import GPTNeoPromptCoderLM
+from src.prompt_coder import GPTPromptCoderMixin
+from src.prompt_tuner import GPT2PromptTuningCoderLM  # noqa: F401, E501
+from src.prompt_tuner import GPT2PromptTuningLM
+from src.prompt_tuner import GPT2PromptTuningPostfixLM
+from src.prompt_tuner import GPTJPromptTuningCoderLM
+from src.prompt_tuner import GPTJPromptTuningLM
+from src.prompt_tuner import GPTJPromptTuningPostfixLM
+from src.prompt_tuner import GPTNeoPromptTuningCoderLM
+from src.prompt_tuner import GPTNeoPromptTuningLM
+from src.prompt_tuner import GPTNeoPromptTuningPostfixLM
+import src.utils as utils
 
 
 FLAGS = flags.FLAGS
@@ -119,6 +117,8 @@ flags.DEFINE_boolean("reversed_outputs", False, help="Reverse output digits")
 
 flags.DEFINE_integer("n_read_off_batches", None, help="read off batches")
 
+flags.DEFINE_string("postfix_string", None, help="Initial postfix string")
+
 
 def _experiment_suffix(FLAGS):
     model_name = FLAGS.model.replace("/", "_")
@@ -140,6 +140,7 @@ def get_model(
     padding_idx: Optional[int] = None,
     n_prompt_tokens: Optional[int] = None,
     n_coder_steps: Optional[int] = None,
+    n_coder_tokens: Optional[List[int]] = None,
     lr_scheduler_type: str = "linear",
     learning_rate: float = 0.001,
     num_warmup_steps: int = 0,
@@ -172,6 +173,7 @@ def get_model(
     if "Postfix" in model_type or "Coder" in model_type:
         params_to_optimize.append("coder")
         kwargs["n_steps"] = n_coder_steps
+        kwargs["n_coder_tokens"] = n_coder_tokens
 
     if n_coder_steps is None and n_prompt_tokens is None:
         params_to_optimize.append("")
@@ -619,12 +621,19 @@ def train(_):
     )
     FLAGS.padding_idx = padding_idx
 
+    if FLAGS.postfix_string:
+        n_coder_tokens = tokenizer.encode(FLAGS.postfix_string)
+        logging.info(f"n_coder_tokens {n_coder_tokens}")
+    else:
+        n_coder_tokens = None
+
     model, optimizer, lr_scheduler = get_model(
         model_type=FLAGS.model_type,
         model=FLAGS.model,
         init_from_vocab=FLAGS.init_from_vocab,
         n_prompt_tokens=FLAGS.n_prompt_tokens,
         n_coder_steps=FLAGS.n_coder_steps,
+        n_coder_tokens=n_coder_tokens,
         learning_rate=FLAGS.learning_rate,
         num_warmup_steps=FLAGS.num_warmup_steps,
         weight_decay=FLAGS.weight_decay,
@@ -689,7 +698,10 @@ def train(_):
             train_eval_loop(model, tokenizer, dataloaders[1], iter=epoch)
             logging.info(f"Epoch {epoch} training starts")
 
-            if (epoch + 1) % FLAGS.save_every == 0:
+            if (
+                FLAGS.model_type != "FineTuning"
+                and (epoch + 1) % FLAGS.save_every == 0
+            ):
                 utils.save_model(
                     model,
                     optimizer,
@@ -712,15 +724,15 @@ def train(_):
                 iter=epoch,
             )
         # model.gradient_checkpointing_disable()
-
-        utils.save_model(
-            model,
-            optimizer,
-            lr_scheduler,
-            checkpoint_dir,
-            iter=FLAGS.num_train_epochs,
-            main_seed_state=seed,
-        )
+        if FLAGS.model_type != "FineTuning":
+            utils.save_model(
+                model,
+                optimizer,
+                lr_scheduler,
+                checkpoint_dir,
+                iter=FLAGS.num_train_epochs,
+                main_seed_state=seed,
+            )
 
     model.eval()
     logging.info("Running final evals for test set")

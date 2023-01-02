@@ -1,10 +1,8 @@
 import torch
 import torch.utils.checkpoint
 from transformers.models.gptj import modeling_gptj
-from transformers.models.gptj.modeling_gptj import (
-    BaseModelOutputWithPast,
-    logger,
-)
+from transformers.models.gptj.modeling_gptj import BaseModelOutputWithPast
+from transformers.models.gptj.modeling_gptj import logger
 
 
 def fixed_pos_embedding(x, position_ids, seq_dim=1):

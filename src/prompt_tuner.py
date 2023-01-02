@@ -1,15 +1,19 @@
 import os
 from pathlib import Path
+
+from absl import logging
 import torch
 import torch.nn as nn
-from absl import logging
-from transformers import GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM
-from .postfix_tuner import GPT2PostfixLM, GPTJPostfixLM, GPTNeoPostfixLM
-from .prompt_coder import (
-    GPT2PromptCoderLM,
-    GPTJPromptCoderLM,
-    GPTNeoPromptCoderLM,
-)
+from transformers import GPT2LMHeadModel
+from transformers import GPTJForCausalLM
+from transformers import GPTNeoForCausalLM
+
+from .postfix_tuner import GPT2PostfixLM
+from .postfix_tuner import GPTJPostfixLM
+from .postfix_tuner import GPTNeoPostfixLM
+from .prompt_coder import GPT2PromptCoderLM
+from .prompt_coder import GPTJPromptCoderLM
+from .prompt_coder import GPTNeoPromptCoderLM
 
 
 class GPTPromptTuningMixin:

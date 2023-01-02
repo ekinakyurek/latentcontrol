@@ -1,10 +1,13 @@
 import json
 import pickle
 from typing import Callable, List, Mapping, NamedTuple, Union
-import torch
+
 from absl import logging
-from torch.utils.data import DataLoader, Dataset
+import torch
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 from transformers import AutoTokenizer
+
 from datasets import load_dataset
 
 
@@ -34,9 +37,9 @@ class ESNLIDataset(Dataset):
             split = "validation"
             length = 2500
         elif split == "test":
-            length = 5000
+            length = 50000  # 5000
         elif split == "train":
-            length = 10000
+            length = 50000  # 10000
         data = load_dataset("esnli", split=split)
         length = min(len(data), length)
         data = data.shuffle(self.seed).select(range(length))

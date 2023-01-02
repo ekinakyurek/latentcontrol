@@ -1,11 +1,16 @@
 import os
 import subprocess
 import time
-from absl import app, flags, logging
+
+from absl import app
+from absl import flags
+from absl import logging
+
 import scripts.train_model  # noqa: F401
 
 
-# python run_hp_sweep.py --gpus_to_use 0,1,2,3 --dataset ESNLIDataset --gaccum 4 --exp_folder exps/ensli_later
+# python run_hp_sweep.py --gpus_to_use 0,1,2,3 --dataset ESNLIDataset \
+# --gaccum 4 --exp_folder exps/ensli_later
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
@@ -48,8 +53,8 @@ def main(_):
     print(f"gpus: {gpus}")
     exp_files = []
 
-    for seed in range(1):
-        for train_type in ("FineTuning",):
+    for seed in range(0, 2):
+        for train_type in ("PromptTuningPostfixLM",):
 
             for backbone in ("EleutherAI/gpt-j-6B",):
 
@@ -61,7 +66,10 @@ def main(_):
                     # if train_type == "PromptTuningPostfixLM" and steps > 30:
                     #     continue
 
-                    for learning_rate in (0.0001,):
+                    # if train_type == "PromptTuningLM" and steps < 60:
+                    #     continue
+
+                    for learning_rate in (0.001, 0.00025):
 
                         if train_type == "FineTuning":
                             local_exp_folder = os.path.join(

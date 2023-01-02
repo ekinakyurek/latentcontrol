@@ -1,8 +1,8 @@
 {
-    "git.ignoreLimitWarning": true,
-    "python.linting.flake8Enabled": true,
-    "python.linting.enabled": true,
-    "editor.formatOnSave": true,
+    // "python.linting.enabled": true,
+    // "git.ignoreLimitWarning": true,
+    "editor.formatOnSave": false,
+    "editor.tabSize": 2,
     "python.linting.lintOnSave": true,
     "python.analysis.extraPaths": [
         "${workspaceFolder}",
@@ -11,13 +11,32 @@
     "python.formatting.blackArgs": [
         "--line-length=80"
     ],
-    "python.sortImports.args": [
+    "isort.args": [
         "--profile",
-        "black"
+        "google",
     ],
-    "[python]": {
-        "editor.codeActionsOnSave": {
-            "source.organizeImports": true
-        }
-    }
+    "files.trimTrailingWhitespace": true,
+    "cSpell.words": [
+        "absl",
+        "arange",
+        "coef",
+        "lstsq",
+        "matplotlib",
+        "mplstyle",
+        "ndim",
+        "pyplot",
+        "sklearn"
+    ],
+    "python.linting.pylintEnabled": true,
+    "python.linting.pylintArgs": [
+        "--indent-string=\"  \"",
+        "--rcfile=${workspaceFolder}/.pylintrc"
+    ],
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/exps/**": true,
+        "**/data/**": true
+    },
+    "python.linting.enabled": true,
+    "editor.rulers": [80]
 }

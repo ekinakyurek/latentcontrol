@@ -4,10 +4,13 @@ import math
 import pdb
 import pickle
 from typing import Callable, List, Mapping, NamedTuple, Union
+
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 from transformers import AutoTokenizer
+
 from src import utils
 
 
@@ -58,8 +61,8 @@ class ParityDataset(Dataset):
         for e1 in range(max_digits):
             for _ in range(N_per_digit * e1):
                 x1 = ParityDataset.random_with_n_digits(rng, e1 + 1)
-                y = np.sum(x1) % 2
-                y = str(x1.sum())
+                # y = "even 1s" if x1.sum() % 2 == 0 else "odd 1s"
+                y = x1.sum()
                 x1 = " ".join(x1.astype(int).astype(str))
                 examples.add((x1, y))
 
@@ -164,8 +167,9 @@ class ParityDataset(Dataset):
 
     def __getitem__(self, idx):
         ex = self.data[idx]
-        input = f"Q: How many 1s in {ex.x1}?\n"
-        output = f"A: {ex.y}."
+        # input = f"Q: How many 1s in {ex.x1}?\n"
+        input = f"Q: What is the parity of following sequence {ex.x1}?\n"
+        output = f"{ex.y % 2} ."
         return input, output
 
 

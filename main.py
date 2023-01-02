@@ -1,4 +1,5 @@
-from scripts import data, datastats
+from scripts import data
+from scripts import datastats
 
 
 if __name__ == "__main__":
